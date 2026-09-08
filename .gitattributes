@@ -1,4 +1,7 @@
 * text=auto
+# Keep fingerprinted Jomini manifests and licenses identical on Windows checkouts.
+*.toml text eol=lf
+*.txt text eol=lf
 *.rs text eol=lf
 *.js text eol=lf
 *.cjs text eol=lf

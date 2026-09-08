@@ -26,13 +26,18 @@ jobs:
       - run: npm test
       - run: npm run test:desktop
       - name: Package Windows app
-        run: npx electron-builder --win zip --x64
+        id: package
+        shell: pwsh
+        run: |
+          $outputDir = (Get-Content package.json -Raw | ConvertFrom-Json).build.directories.output
+          "output_dir=$outputDir" >> $env:GITHUB_OUTPUT
+          npx electron-builder --win zip --x64
       - name: Verify packaged app
         shell: pwsh
         run: |
-          $env:CONTINUUM_EXE = Join-Path $PWD 'release-0.2.1/win-unpacked/CK3 Continuum.exe'
+          $env:CONTINUUM_EXE = Join-Path $PWD '${{ steps.package.outputs.output_dir }}/win-unpacked/CK3 Continuum.exe'
           npm run test:desktop
       - uses: actions/upload-artifact@v4
         with:
           name: ck3-continuum-windows-x64
-          path: release-0.2.1/*.zip
+          path: ${{ steps.package.outputs.output_dir }}/*.zip
