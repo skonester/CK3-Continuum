@@ -10,3 +10,6 @@
 *.json text eol=lf
 *.md text eol=lf
 *.yml text eol=lf
+
+# Preserve the supplied game save byte-for-byte on every checkout.
+/reference-saves/*.ck3 binary

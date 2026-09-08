@@ -16,3 +16,6 @@ test-output/
 Thumbs.db
 
 release-*/
+
+# Include only the supplied public reference; other campaign saves stay ignored.
+!/reference-saves/Petty_King_Murchad_of_Munster_1.19.0.6.ck3

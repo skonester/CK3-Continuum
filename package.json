@@ -20,8 +20,9 @@
     "start": "node scripts/start.mjs",
     "test": "node --test native/test/*.test.cjs tests/*.test.cjs",
     "test:desktop": "node scripts/smoke.mjs",
-    "package": "npm run native:build && npm run build && electron-builder --win zip --x64",
-    "package:dir": "npm run native:build && npm run build && electron-builder --win --dir --x64"
+    "package": "npm run native:build && npm run build && electron-builder --win --x64 --publish never",
+    "package:dir": "npm run native:build && npm run build && electron-builder --win --dir --x64",
+    "test:portable": "node scripts/smoke-portable.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
@@ -69,7 +70,7 @@
     ],
     "win": {
       "target": [
-        "zip"
+        "portable"
       ],
       "signAndEditExecutable": true,
       "icon": "images/ck3.ico",
