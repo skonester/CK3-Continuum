@@ -1,0 +1,22 @@
+[package]
+name = "ck3-save-native"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+jomini = { path = "../vendor/jomini", default-features = false, features = ["envelope"] }
+napi = { version = "3", default-features = false, features = ["napi8"] }
+napi-derive = "3"
+sha2 = "0.10"
+flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
+crc32fast = "1.4"
+
+[build-dependencies]
+napi-build = "2"
+
+[profile.release]
+lto = "thin"

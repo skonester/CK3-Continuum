@@ -1,0 +1,860 @@
+use super::{LexError, LexemeId, LexerError, ParserError, ParserSource, Token, lexer::read_rgb};
+use crate::{
+    ReaderError, ReaderErrorKind, Scalar,
+    binary::{Rgb, lexer::TokenKind},
+    util::get_split,
+};
+use std::io::{self, Read};
+
+/// [Lexer](crate::binary::Lexer) that works over a [Read] implementation
+///
+/// Example of computing the max nesting depth using a [TokenReader].
+///
+/// ```rust
+/// use jomini::binary::{TokenReader, Token};
+/// let data = [0x2d, 0x28, 0x01, 0x00, 0x03, 0x00, 0x03, 0x00, 0x04, 0x00, 0x04, 0x00];
+/// let mut reader = TokenReader::new(&data[..]);
+/// let mut max_depth = 0;
+/// let mut current_depth = 0;
+/// while let Some(token) = reader.next()? {
+///   match token {
+///     Token::Open => {
+///       current_depth += 1;
+///       max_depth = max_depth.max(current_depth);
+///     }
+///     Token::Close => current_depth -= 1,
+///     _ => {}
+///   }
+/// }
+/// assert_eq!(max_depth, 2);
+/// # Ok::<(), jomini::binary::ReaderError>(())
+/// ```
+///
+/// The tokens yielded from a [TokenReader] are not fully parsed. Some things to
+/// be aware of:
+///
+/// - Ghost objects will not be skipped (eg: `foo={ {} a=b }`).
+/// - [TokenReader] can not inform the caller if the container is an array or
+///   object (or neither).
+///
+/// This is a much more raw view of the data that can be used to construct
+/// higher level parsers, melters, and deserializers that operate over a stream
+/// of data.
+///
+/// [TokenReader] operates over a fixed size buffer, so using a
+/// [BufRead](std::io::BufRead) affords no benefits.
+pub struct TokenReader<'a> {
+    source: ParserSource<'a>,
+    data: [u8; 8],
+}
+
+impl<'a> TokenReader<'a> {
+    /// Convenience method for constructing the default token reader.
+    #[inline]
+    pub fn new<R>(reader: R) -> Self
+    where
+        R: Read + 'a,
+    {
+        TokenReader::from_source(ParserSource::from_reader(reader))
+    }
+
+    /// Construct a token reader with a caller-provided streaming buffer.
+    ///
+    /// ```
+    /// use jomini::binary::{Token, TokenReader};
+    ///
+    /// let buffer = vec![0; 128];
+    /// let mut reader = TokenReader::from_reader_with_buf(&[0xd2, 0x28][..], buffer);
+    /// assert_eq!(reader.read().unwrap(), Token::Id(0x28d2));
+    /// ```
+    #[inline]
+    pub fn from_reader_with_buf<R>(reader: R, buffer: Vec<u8>) -> Self
+    where
+        R: Read + 'a,
+    {
+        TokenReader::from_source(ParserSource::from_reader_with_buf(reader, buffer))
+    }
+}
+
+impl<'a> TokenReader<'a> {
+    /// Read from a byte slice without memcpy's.
+    #[inline]
+    pub fn from_slice(data: &'a [u8]) -> Self {
+        TokenReader::from_source(ParserSource::from_slice(data))
+    }
+
+    /// Create a token reader from an existing parser source.
+    #[inline]
+    pub fn from_source(source: ParserSource<'a>) -> Self {
+        TokenReader {
+            source,
+            data: [0; 8],
+        }
+    }
+
+    /// Returns the byte position of the data stream that has been processed.
+    ///
+    /// ```
+    /// use jomini::binary::{Token, TokenReader};
+    ///
+    /// let mut reader = TokenReader::new(&[0xd2, 0x28, 0xff][..]);
+    /// assert_eq!(reader.read().unwrap(), Token::Id(0x28d2));
+    /// assert_eq!(reader.position(), 2);
+    /// ```
+    #[inline]
+    pub fn position(&self) -> usize {
+        self.source.position()
+    }
+
+    #[inline]
+    fn ensure_bytes(&mut self, required: usize) -> Result<(), ReaderError> {
+        self.source
+            .ensure_bytes(required)
+            .map_err(|e| self.parser_error(e))
+    }
+
+    /// Advance a given number of bytes and return them.
+    ///
+    /// The internal buffer must be large enough to accommodate all bytes.
+    ///
+    /// ```
+    /// use jomini::binary::{ReaderErrorKind, TokenReader};
+    ///
+    /// let mut reader = TokenReader::new(&b"EU4bin"[..]);
+    /// assert_eq!(reader.read_bytes(6).unwrap(), &b"EU4bin"[..]);
+    /// assert!(matches!(
+    ///     reader.read_bytes(1).unwrap_err().kind(),
+    ///     ReaderErrorKind::Eof,
+    /// ));
+    /// ```
+    #[inline]
+    pub fn read_bytes(&mut self, bytes: usize) -> Result<&[u8], ReaderError> {
+        // SAFETY: the source borrow ends with `take` on the error path
+        let s = std::ptr::addr_of!(self);
+        self.source
+            .take_bytes(bytes)
+            .map_err(|e| unsafe { s.read().parser_error(e) })
+    }
+
+    /// Advance through the containing block until the closing token is consumed.
+    ///
+    /// ```
+    /// use jomini::binary::{Token, TokenReader};
+    ///
+    /// let mut reader = TokenReader::new(&[
+    ///     0xd2, 0x28, 0x01, 0x00, 0x03, 0x00, 0x03, 0x00,
+    ///     0x04, 0x00, 0x04, 0x00, 0xff, 0xff,
+    /// ][..]);
+    /// assert_eq!(reader.read().unwrap(), Token::Id(0x28d2));
+    /// assert_eq!(reader.read().unwrap(), Token::Equal);
+    /// assert_eq!(reader.read().unwrap(), Token::Open);
+    /// reader.skip_container().unwrap();
+    /// assert_eq!(reader.read().unwrap(), Token::Id(0xffff));
+    /// ```
+    #[inline]
+    pub fn skip_container(&mut self) -> Result<(), ReaderError> {
+        let mut depth = 1usize;
+        loop {
+            let token = self.read_token()?;
+            match token {
+                TokenKind::Close => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Ok(());
+                    }
+                }
+                TokenKind::Open => depth += 1,
+                _ => {}
+            }
+        }
+    }
+
+    /// Read the next token in the stream. Will error if not enough data remains
+    /// to decode a token.
+    ///
+    /// ```
+    /// use jomini::binary::{ReaderErrorKind, Token, TokenReader};
+    ///
+    /// let mut reader = TokenReader::new(&[
+    ///     0xd2, 0x28, 0x01, 0x00, 0x03, 0x00, 0x04, 0x00,
+    /// ][..]);
+    /// assert_eq!(reader.read().unwrap(), Token::Id(0x28d2));
+    /// assert_eq!(reader.read().unwrap(), Token::Equal);
+    /// assert_eq!(reader.read().unwrap(), Token::Open);
+    /// assert_eq!(reader.read().unwrap(), Token::Close);
+    /// assert!(matches!(
+    ///     reader.read().unwrap_err().kind(),
+    ///     ReaderErrorKind::Eof,
+    /// ));
+    /// ```
+    #[inline]
+    pub fn read(&mut self) -> Result<Token<'_>, ReaderError> {
+        // SAFETY: borrow of `self` ends with `next()`
+        let s = std::ptr::addr_of!(self);
+        self.next()?
+            .ok_or_else(|| unsafe { s.read().lex_error(LexError::Eof) })
+    }
+
+    /// Read a token, returning none when all the data has been consumed.
+    ///
+    /// ```rust
+    /// use jomini::binary::{TokenReader, Token};
+    /// let mut reader = TokenReader::new(&[
+    ///     0xd2, 0x28, 0x01, 0x00, 0x03, 0x00, 0x04, 0x00
+    /// ][..]);
+    /// assert_eq!(reader.next().unwrap(), Some(Token::Id(0x28d2)));
+    /// assert_eq!(reader.next().unwrap(), Some(Token::Equal));
+    /// assert_eq!(reader.next().unwrap(), Some(Token::Open));
+    /// assert_eq!(reader.next().unwrap(), Some(Token::Close));
+    /// assert_eq!(reader.next().unwrap(), None);
+    /// ```
+    #[inline]
+    #[allow(clippy::should_implement_trait)]
+    pub fn next(&mut self) -> Result<Option<Token<'_>>, ReaderError> {
+        match self.next_token()? {
+            Some(kind) => Ok(Some(self.token_from_kind(kind))),
+            None => Ok(None),
+        }
+    }
+
+    /// Construct a [Token] from a [TokenKind] using stored data.
+    #[inline]
+    fn token_from_kind(&self, kind: TokenKind) -> Token<'_> {
+        match kind {
+            TokenKind::Open => Token::Open,
+            TokenKind::Close => Token::Close,
+            TokenKind::Equal => Token::Equal,
+            TokenKind::U32 => Token::U32(self.u32_data()),
+            TokenKind::U64 => Token::U64(self.u64_data()),
+            TokenKind::I32 => Token::I32(self.i32_data()),
+            TokenKind::Bool => Token::Bool(self.bool_data()),
+            TokenKind::Quoted => Token::Quoted(unsafe { self.scalar_data() }),
+            TokenKind::Unquoted => Token::Unquoted(unsafe { self.scalar_data() }),
+            TokenKind::F32 => Token::F32(self.f32_data()),
+            TokenKind::F64 => Token::F64(self.f64_data()),
+            TokenKind::Rgb => Token::Rgb(self.rgb_data()),
+            TokenKind::I64 => Token::I64(self.i64_data()),
+            TokenKind::Lookup => Token::Lookup(self.lookup_data()),
+            TokenKind::Id => Token::Id(self.token_id()),
+        }
+    }
+
+    /// Returns the id for the most recently decoded token.
+    #[inline]
+    pub fn token_id(&self) -> u16 {
+        u16::from_le_bytes([self.data[0], self.data[1]])
+    }
+
+    /// Returns scalar bytes for the most recently decoded scalar token.
+    ///
+    /// # Safety
+    ///
+    /// The most recent token must be [`TokenKind::Quoted`] or
+    /// [`TokenKind::Unquoted`], and the underlying source must not have been
+    /// advanced past the token's backing bytes except by `TokenReader`.
+    #[inline]
+    pub unsafe fn scalar_data(&self) -> Scalar<'_> {
+        let len = u16::from_le_bytes([self.data[0], self.data[1]]) as usize;
+        let data = unsafe { self.source.window().as_ptr().byte_sub(len) };
+        Scalar::new(unsafe { std::slice::from_raw_parts(data, len) })
+    }
+
+    /// Returns `u64` data for the most recently decoded token.
+    #[inline]
+    pub fn u64_data(&self) -> u64 {
+        u64::from_le_bytes(self.data)
+    }
+
+    /// Returns `i64` data for the most recently decoded token.
+    #[inline]
+    pub fn i64_data(&self) -> i64 {
+        i64::from_le_bytes(self.data)
+    }
+
+    /// Returns raw `f64` bytes for the most recently decoded token.
+    #[inline]
+    pub fn f64_data(&self) -> [u8; 8] {
+        self.data
+    }
+
+    /// Returns `u32` data for the most recently decoded token.
+    #[inline]
+    pub fn u32_data(&self) -> u32 {
+        u32::from_le_bytes([self.data[0], self.data[1], self.data[2], self.data[3]])
+    }
+
+    /// Returns `i32` data for the most recently decoded token.
+    #[inline]
+    pub fn i32_data(&self) -> i32 {
+        i32::from_le_bytes([self.data[0], self.data[1], self.data[2], self.data[3]])
+    }
+
+    /// Returns raw `f32` bytes for the most recently decoded token.
+    #[inline]
+    pub fn f32_data(&self) -> [u8; 4] {
+        [self.data[0], self.data[1], self.data[2], self.data[3]]
+    }
+
+    /// Returns boolean data for the most recently decoded token.
+    #[inline]
+    pub fn bool_data(&self) -> bool {
+        self.data[0] != 0
+    }
+
+    /// Returns lookup data for the most recently decoded token.
+    #[inline]
+    pub fn lookup_data(&self) -> u32 {
+        // Narrower lookup widths zero the unused high bytes, so reading all
+        // four bytes is correct for u8/u16/u24/u32 lookup indices alike.
+        u32::from_le_bytes([self.data[0], self.data[1], self.data[2], self.data[3]])
+    }
+
+    /// Returns RGB data for the most recently decoded token.
+    ///
+    /// # Safety
+    ///
+    /// It is undefined behavior if this method is called and the previous
+    /// [`Self::next_token`] or [`Self::read_token`] did not return [`TokenKind::Rgb`].
+    #[inline]
+    pub fn rgb_data(&self) -> Rgb {
+        let size = self.data[0] as usize;
+        let data = unsafe { self.source.window().as_ptr().byte_sub(size) };
+        let data = unsafe { std::slice::from_raw_parts(data, size) };
+        let (result, _data) = read_rgb(data).expect("valid rgb data");
+        result
+    }
+
+    #[inline]
+    fn next_token_fast(&mut self, window: &[u8]) -> Option<TokenKind> {
+        let (id, rest) = get_split::<2>(window).unwrap();
+        let lexeme = LexemeId::new(u16::from_le_bytes(*id));
+        match lexeme {
+            LexemeId::OPEN => {
+                self.source.advance(2);
+                Some(TokenKind::Open)
+            }
+            LexemeId::CLOSE => {
+                self.source.advance(2);
+                Some(TokenKind::Close)
+            }
+            LexemeId::EQUAL => {
+                self.source.advance(2);
+                Some(TokenKind::Equal)
+            }
+            LexemeId::U32 | LexemeId::I32 | LexemeId::F32 => {
+                self.data[..4].copy_from_slice(&rest[..4]);
+                self.source.advance(6);
+                if lexeme == LexemeId::F32 {
+                    Some(TokenKind::F32)
+                } else if lexeme == LexemeId::U32 {
+                    Some(TokenKind::U32)
+                } else {
+                    Some(TokenKind::I32)
+                }
+            }
+            LexemeId::U64 | LexemeId::I64 | LexemeId::F64 => {
+                self.data[..8].copy_from_slice(&rest[..8]);
+                self.source.advance(10);
+                if lexeme == LexemeId::F64 {
+                    Some(TokenKind::F64)
+                } else if lexeme == LexemeId::U64 {
+                    Some(TokenKind::U64)
+                } else {
+                    Some(TokenKind::I64)
+                }
+            }
+            LexemeId::BOOL => {
+                self.data[0] = rest[0];
+                self.source.advance(3);
+                Some(TokenKind::Bool)
+            }
+            LexemeId::QUOTED | LexemeId::UNQUOTED => {
+                let (len_data, rest) = get_split::<2>(rest).unwrap();
+                let len = u16::from_le_bytes(*len_data) as usize;
+                rest.get(len..)?;
+                self.data[0..2].copy_from_slice(len_data);
+                self.source.advance(4 + len);
+                if lexeme == LexemeId::UNQUOTED {
+                    Some(TokenKind::Unquoted)
+                } else {
+                    Some(TokenKind::Quoted)
+                }
+            }
+            LexemeId::EMPTY_STRING => {
+                // Zero-payload empty string: store length 0 so `scalar_data`
+                // yields an empty scalar, and advance past only the 2 id bytes.
+                self.data = [0; 8];
+                self.source.advance(2);
+                Some(TokenKind::Quoted)
+            }
+            LexemeId::LOOKUP_U8 | LexemeId::LOOKUP_U8_ALT => {
+                self.data = [0; 8];
+                self.data[0] = rest[0];
+                self.source.advance(3);
+                Some(TokenKind::Lookup)
+            }
+            LexemeId::LOOKUP_U16 | LexemeId::LOOKUP_U16_ALT => {
+                self.data = [0; 8];
+                self.data[0..2].copy_from_slice(&rest[..2]);
+                self.source.advance(4);
+                Some(TokenKind::Lookup)
+            }
+            LexemeId::LOOKUP_U24 | LexemeId::LOOKUP_U24_ALT => {
+                self.data = [0; 8];
+                self.data[0..3].copy_from_slice(&rest[..3]);
+                self.source.advance(5);
+                Some(TokenKind::Lookup)
+            }
+            LexemeId::LOOKUP_U32 | LexemeId::LOOKUP_U32_ALT => {
+                self.data = [0; 8];
+                self.data[0..4].copy_from_slice(&rest[..4]);
+                self.source.advance(6);
+                Some(TokenKind::Lookup)
+            }
+            LexemeId::RGB => None,
+            lexeme if lexeme >= LexemeId::FIXED5_ZERO && lexeme <= LexemeId::FIXED5_I56 => {
+                let offset = lexeme.0 - LexemeId::FIXED5_ZERO.0;
+                let is_negative = offset > 7;
+                let byte_count = offset - (is_negative as u16 * 7);
+                let mut buf = [0u8; 8];
+                buf[..byte_count as usize].copy_from_slice(&rest[..byte_count as usize]);
+                let sign = 1i64 - (is_negative as i64) * 2;
+                self.data = (u64::from_le_bytes(buf) as i64 * sign).to_le_bytes();
+                self.source.advance(2 + byte_count as usize);
+                Some(TokenKind::F64)
+            }
+            _ => {
+                self.data[..2].copy_from_slice(id);
+                self.source.advance(2);
+                Some(TokenKind::Id)
+            }
+        }
+    }
+
+    /// Reads the next token kind without constructing a borrowed [`Token`].
+    #[inline]
+    pub fn read_token(&mut self) -> Result<TokenKind, ReaderError> {
+        match self.next_token()? {
+            Some(t) => Ok(t),
+            None => Err(self.lex_error(LexError::Eof)),
+        }
+    }
+
+    fn next_token_slow(&mut self, id: [u8; 2]) -> Result<TokenKind, ReaderError> {
+        let lexeme = LexemeId::new(u16::from_le_bytes(id));
+        let kind = match lexeme {
+            LexemeId::OPEN => {
+                self.source.advance(2);
+                TokenKind::Open
+            }
+            LexemeId::CLOSE => {
+                self.source.advance(2);
+                TokenKind::Close
+            }
+            LexemeId::EQUAL => {
+                self.source.advance(2);
+                TokenKind::Equal
+            }
+            LexemeId::U32 | LexemeId::I32 | LexemeId::F32 => {
+                self.ensure_bytes(6)?;
+                let data = unsafe { self.source.get_window_unchecked(6) };
+                self.data[..4].copy_from_slice(&data[2..6]);
+                self.source.advance(6);
+                if lexeme == LexemeId::F32 {
+                    TokenKind::F32
+                } else if lexeme == LexemeId::U32 {
+                    TokenKind::U32
+                } else {
+                    TokenKind::I32
+                }
+            }
+            LexemeId::U64 | LexemeId::I64 | LexemeId::F64 => {
+                self.ensure_bytes(10)?;
+                let data = unsafe { self.source.get_window_unchecked(10) };
+                self.data[..8].copy_from_slice(&data[2..10]);
+                self.source.advance(10);
+                if lexeme == LexemeId::F64 {
+                    TokenKind::F64
+                } else if lexeme == LexemeId::U64 {
+                    TokenKind::U64
+                } else {
+                    TokenKind::I64
+                }
+            }
+            LexemeId::BOOL => {
+                self.ensure_bytes(3)?;
+                let data = unsafe { self.source.get_window_unchecked(3) };
+                self.data[0] = data[2];
+                self.source.advance(3);
+                TokenKind::Bool
+            }
+            LexemeId::QUOTED | LexemeId::UNQUOTED => {
+                self.ensure_bytes(4)?;
+                let data = unsafe { self.source.get_window_unchecked(4) };
+                let len_data = [data[2], data[3]];
+                let len = u16::from_le_bytes(len_data) as usize;
+                self.ensure_bytes(4 + len)?;
+                self.data[0..2].copy_from_slice(&len_data);
+                self.source.advance(4 + len);
+                if lexeme == LexemeId::UNQUOTED {
+                    TokenKind::Unquoted
+                } else {
+                    TokenKind::Quoted
+                }
+            }
+            LexemeId::EMPTY_STRING => {
+                // Zero-payload empty string: store length 0 so `scalar_data`
+                // yields an empty scalar, and advance past only the 2 id bytes.
+                self.data = [0; 8];
+                self.source.advance(2);
+                TokenKind::Quoted
+            }
+            LexemeId::LOOKUP_U8 | LexemeId::LOOKUP_U8_ALT => {
+                self.ensure_bytes(3)?;
+                let data = unsafe { self.source.get_window_unchecked(3) };
+                self.data = [0; 8];
+                self.data[0] = data[2];
+                self.source.advance(3);
+                TokenKind::Lookup
+            }
+            LexemeId::LOOKUP_U16 | LexemeId::LOOKUP_U16_ALT => {
+                self.ensure_bytes(4)?;
+                let data = unsafe { self.source.get_window_unchecked(4) };
+                self.data = [0; 8];
+                self.data[0..2].copy_from_slice(&data[2..4]);
+                self.source.advance(4);
+                TokenKind::Lookup
+            }
+            LexemeId::LOOKUP_U24 | LexemeId::LOOKUP_U24_ALT => {
+                self.ensure_bytes(5)?;
+                let data = unsafe { self.source.get_window_unchecked(5) };
+                self.data = [0; 8];
+                self.data[0..3].copy_from_slice(&data[2..5]);
+                self.source.advance(5);
+                TokenKind::Lookup
+            }
+            LexemeId::LOOKUP_U32 | LexemeId::LOOKUP_U32_ALT => {
+                self.ensure_bytes(6)?;
+                let data = unsafe { self.source.get_window_unchecked(6) };
+                self.data = [0; 8];
+                self.data[0..4].copy_from_slice(&data[2..6]);
+                self.source.advance(6);
+                TokenKind::Lookup
+            }
+            LexemeId::RGB => {
+                self.ensure_bytes(24)?;
+                let data = self.source.window();
+                match read_rgb(&data[2..]) {
+                    Ok((_rgb, rest)) => {
+                        let size = rest.as_ptr() as usize - data[2..].as_ptr() as usize;
+                        self.data[0] = size as u8;
+                        self.source.advance(2 + size);
+                        TokenKind::Rgb
+                    }
+                    Err(LexError::Eof) => {
+                        self.ensure_bytes(30)?;
+                        let data = self.source.window();
+                        let (_rgb, rest) = read_rgb(&data[2..]).map_err(|e| self.lex_error(e))?;
+                        let size = rest.as_ptr() as usize - data[2..].as_ptr() as usize;
+                        self.data[0] = size as u8;
+                        self.source.advance(2 + size);
+                        TokenKind::Rgb
+                    }
+                    Err(e) => return Err(self.lex_error(e)),
+                }
+            }
+            lexeme if lexeme >= LexemeId::FIXED5_ZERO && lexeme <= LexemeId::FIXED5_I56 => {
+                let offset = lexeme.0 - LexemeId::FIXED5_ZERO.0;
+                let is_negative = offset > 7;
+                let byte_count = offset - (is_negative as u16 * 7);
+                self.ensure_bytes(2 + byte_count as usize)?;
+                let data = unsafe { self.source.get_window_unchecked(2 + byte_count as usize) };
+                let mut buf = [0u8; 8];
+                buf[..byte_count as usize].copy_from_slice(&data[2..]);
+                let sign = 1i64 - (is_negative as i64) * 2;
+                self.data = (u64::from_le_bytes(buf) as i64 * sign).to_le_bytes();
+                self.source.advance(2 + byte_count as usize);
+                TokenKind::F64
+            }
+            _ => {
+                self.data[..2].copy_from_slice(&id);
+                self.source.advance(2);
+                TokenKind::Id
+            }
+        };
+
+        Ok(kind)
+    }
+
+    /// Reads the next token kind, returning `None` when all data is consumed.
+    #[inline]
+    pub fn next_token(&mut self) -> Result<Option<TokenKind>, ReaderError> {
+        // The raw-pointer reborrow side-steps the borrow checker. This is safe
+        // as long as the "next_token_fast" doesn't cause a refill.
+        let window = self.source.window();
+        if window.len() >= 16
+            && let Some(kind) = self.next_token_fast(unsafe { &*(window as *const [u8]) })
+        {
+            return Ok(Some(kind));
+        }
+
+        let id = match self.source.peek::<2>() {
+            Ok(Some(id)) => *id,
+            Ok(None) => return Ok(None),
+            Err(e) => return Err(self.parser_error(e)),
+        };
+        self.next_token_slow(id).map(Some)
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn parser_error(&self, e: ParserError) -> ReaderError {
+        let kind = match e {
+            ParserError::Io(io::ErrorKind::UnexpectedEof) => ReaderErrorKind::Eof,
+            ParserError::BufferTooSmall => ReaderErrorKind::BufferTooSmall,
+            ParserError::Io(kind) => ReaderErrorKind::Read(kind),
+        };
+        ReaderError::new(self.position(), kind)
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn lex_error(&self, e: LexError) -> ReaderError {
+        ReaderError::from(e.at(self.position()))
+    }
+}
+
+impl From<LexerError> for ReaderError {
+    fn from(value: LexerError) -> Self {
+        let pos = value.position();
+        let kind = match value.into_kind() {
+            LexError::Eof => ReaderErrorKind::Eof,
+            LexError::InvalidRgb => ReaderErrorKind::InvalidRgb,
+        };
+        ReaderError::new(pos, kind)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Scalar, binary::Rgb};
+    use rstest::*;
+
+    #[rstest]
+    #[case(&[
+        Token::Id(0x2838),
+        Token::Equal,
+        Token::Open,
+        Token::Id(0x2863),
+        Token::Equal,
+        Token::Unquoted(Scalar::new(b"western")),
+        Token::Quoted(Scalar::new(b"1446.5.31")),
+        Token::Equal,
+        Token::Id(0x2838),
+        Token::Close,
+    ])]
+    #[case(&[
+        Token::Id(0x2ec9),
+        Token::Equal,
+        Token::Open,
+        Token::Id(0x28e2),
+        Token::Equal,
+        Token::I32(1),
+        Token::Id(0x28e3),
+        Token::Equal,
+        Token::I32(11),
+        Token::Id(0x2ec7),
+        Token::Equal,
+        Token::I32(4),
+        Token::Id(0x2ec8),
+        Token::Equal,
+        Token::I32(0),
+        Token::Close,
+    ])]
+    #[case(&[
+        Token::Id(0x053a),
+        Token::Equal,
+        Token::Rgb(Rgb {
+            r: 110,
+            g: 28,
+            b: 27,
+            a: None
+        })
+    ])]
+    #[case(&[
+        Token::Id(0x053a),
+        Token::Equal,
+        Token::Rgb(Rgb {
+            r: 110,
+            g: 28,
+            b: 27,
+            a: Some(128),
+        })
+    ])]
+    #[case(&[
+        Token::Id(0x326b), Token::Equal, Token::U64(128),
+        Token::Id(0x326b), Token::Equal, Token::I64(-1),
+        Token::Id(0x2d82), Token::Equal, Token::F64([0xc7, 0xe4, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
+        Token::Id(0x2d82), Token::Equal, Token::F32([0x8f, 0xc2, 0x75, 0x3e]),
+        Token::Id(0x2d82), Token::Equal, Token::U32(89)
+    ])]
+    #[case(&[
+        Token::Id(0x2d82),
+        Token::Equal,
+        Token::Lookup(0),
+        Token::Id(0x2d82),
+        Token::Equal,
+        Token::Lookup(255),
+        Token::Id(0x2d82),
+        Token::Equal,
+        Token::Lookup(0),
+        Token::Id(0x2d82),
+        Token::Equal,
+        Token::Lookup(65535),
+    ])]
+    fn test_roundtrip(#[case] input: &[Token]) {
+        let data = Vec::new();
+        let mut writer = std::io::Cursor::new(data);
+        for tok in input {
+            tok.write(&mut writer).unwrap();
+        }
+
+        let data = writer.into_inner();
+
+        // `Read`
+        let mut reader = TokenReader::new(data.as_slice());
+        for (i, e) in input.iter().enumerate() {
+            assert_eq!(*e, reader.read().unwrap(), "failure at token idx: {}", i);
+        }
+
+        reader.read().unwrap_err();
+        assert_eq!(reader.position(), data.len());
+
+        // `from_slice`
+        let mut reader = TokenReader::from_slice(data.as_slice());
+        for (i, e) in input.iter().enumerate() {
+            assert_eq!(*e, reader.read().unwrap(), "failure at token idx: {}", i);
+        }
+
+        reader.read().unwrap_err();
+        assert_eq!(reader.position(), data.len());
+
+        // reader buffer size
+        for i in 30..40 {
+            let mut reader = TokenReader::from_reader_with_buf(data.as_slice(), vec![0; i]);
+            for e in input {
+                assert_eq!(*e, reader.read().unwrap(), "failure at token idx: {}", i);
+            }
+
+            reader.read().unwrap_err();
+            assert_eq!(reader.position(), data.len());
+        }
+    }
+
+    #[test]
+    fn test_not_enough_data() {
+        let mut reader = TokenReader::new(&[0x43][..]);
+        assert!(matches!(
+            reader.read().unwrap_err().kind(),
+            ReaderErrorKind::Eof
+        ));
+    }
+
+    fn assert_tokens(data: &[u8], expected: &[Token]) {
+        // slice reader
+        let mut reader = TokenReader::new(data);
+        for (i, e) in expected.iter().enumerate() {
+            assert_eq!(reader.read().unwrap(), *e, "failure at token idx: {}", i);
+        }
+        reader.read().unwrap_err();
+        assert_eq!(reader.position(), data.len());
+
+        // from_slice reader
+        let mut reader = TokenReader::from_slice(data);
+        for (i, e) in expected.iter().enumerate() {
+            assert_eq!(reader.read().unwrap(), *e, "failure at token idx: {}", i);
+        }
+        reader.read().unwrap_err();
+        assert_eq!(reader.position(), data.len());
+
+        // buffered reader across a range of buffer sizes
+        for buf_size in 30..40 {
+            let mut reader = TokenReader::from_reader_with_buf(data, vec![0; buf_size]);
+            for (i, e) in expected.iter().enumerate() {
+                assert_eq!(reader.read().unwrap(), *e, "failure at token idx: {}", i);
+            }
+            reader.read().unwrap_err();
+            assert_eq!(reader.position(), data.len());
+        }
+    }
+
+    #[test]
+    fn test_empty_string_token() {
+        // The EU5 empty-string lexeme (0x0d42) carries no payload and decodes
+        // to an empty quoted scalar.
+        assert_tokens(&[0x42, 0x0d], &[Token::Quoted(Scalar::new(b""))]);
+    }
+
+    #[test]
+    fn test_empty_string_then_lookup_stays_aligned() {
+        // EMPTY_STRING (2 bytes, no payload) immediately followed by a
+        // LOOKUP_U24(1) must keep the reader aligned.
+        assert_tokens(
+            &[0x42, 0x0d, 0x41, 0x0d, 0x01, 0x00, 0x00],
+            &[Token::Quoted(Scalar::new(b"")), Token::Lookup(1)],
+        );
+    }
+
+    #[test]
+    fn test_lookup_u32_tokens() {
+        // LOOKUP_U32 (0x0d3f): 4-byte little-endian index. The high byte (0x12)
+        // exercises the full 32-bit width.
+        assert_tokens(
+            &[0x3f, 0x0d, 0x78, 0x56, 0x34, 0x12],
+            &[Token::Lookup(0x1234_5678)],
+        );
+    }
+
+    #[test]
+    fn test_lookup_alt_tokens() {
+        // The alt lookup variants decode to the same value as their non-alt
+        // counterparts. LOOKUP_U24_ALT (0x0d45): 3 bytes, LOOKUP_U32_ALT
+        // (0x0d46): 4 bytes.
+        assert_tokens(
+            &[0x45, 0x0d, 0x56, 0x34, 0x12],
+            &[Token::Lookup(0x0012_3456)],
+        );
+        assert_tokens(
+            &[0x46, 0x0d, 0xdd, 0xcc, 0xbb, 0xaa],
+            &[Token::Lookup(0xaabb_ccdd)],
+        );
+    }
+
+    #[test]
+    fn test_lookup_widths_stay_aligned() {
+        // A run of every lookup width back-to-back must keep the reader aligned.
+        assert_tokens(
+            &[
+                0x40, 0x0d, 0x01, // LOOKUP_U8(1)
+                0x43, 0x0d, 0x02, // LOOKUP_U8_ALT(2)
+                0x3e, 0x0d, 0x03, 0x00, // LOOKUP_U16(3)
+                0x44, 0x0d, 0x04, 0x00, // LOOKUP_U16_ALT(4)
+                0x41, 0x0d, 0x05, 0x00, 0x00, // LOOKUP_U24(5)
+                0x45, 0x0d, 0x06, 0x00, 0x00, // LOOKUP_U24_ALT(6)
+                0x3f, 0x0d, 0x07, 0x00, 0x00, 0x00, // LOOKUP_U32(7)
+                0x46, 0x0d, 0x08, 0x00, 0x00, 0x00, // LOOKUP_U32_ALT(8)
+            ],
+            &[
+                Token::Lookup(1),
+                Token::Lookup(2),
+                Token::Lookup(3),
+                Token::Lookup(4),
+                Token::Lookup(5),
+                Token::Lookup(6),
+                Token::Lookup(7),
+                Token::Lookup(8),
+            ],
+        );
+    }
+}

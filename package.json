@@ -1,0 +1,80 @@
+{
+  "name": "ck3-continuum",
+  "productName": "CK3 Continuum",
+  "version": "0.3.1",
+  "description": "A local CK3 save inspection and migration research desktop prototype.",
+  "author": "CK3 Continuum contributors",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.cjs",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:ui": "vite --host 127.0.0.1",
+    "native:build": "node native/scripts/build.cjs",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "build": "npm run check && vite build",
+    "start": "node scripts/start.mjs",
+    "test": "node --test native/test/*.test.cjs tests/*.test.cjs",
+    "test:desktop": "node scripts/smoke.mjs",
+    "package": "npm run native:build && npm run build && electron-builder --win zip --x64",
+    "package:dir": "npm run native:build && npm run build && electron-builder --win --dir --x64"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@sveltejs/vite-plugin-svelte": "7.3.0",
+    "electron": "44.2.0",
+    "electron-builder": "26.15.3",
+    "svelte": "5.57.0",
+    "svelte-check": "4.4.8",
+    "typescript": "5.9.3",
+    "vite": "8.2.2"
+  },
+  "build": {
+    "appId": "org.ck3continuum.prototype",
+    "asar": true,
+    "directories": {
+      "output": "release-0.3.1"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "native",
+        "to": "native",
+        "filter": [
+          "index.cjs",
+          "*.node",
+          "JOMINI-LICENSE.txt"
+        ]
+      },
+      {
+        "from": "THIRD_PARTY_NOTICES.md",
+        "to": "THIRD_PARTY_NOTICES.md"
+      },
+      {
+        "from": "LICENSE",
+        "to": "CONTINUUM-LICENSE.txt"
+      },
+      {
+        "from": "images/ck3.ico",
+        "to": "images/ck3.ico"
+      }
+    ],
+    "win": {
+      "target": [
+        "zip"
+      ],
+      "signAndEditExecutable": true,
+      "icon": "images/ck3.ico",
+      "signExecutable": false
+    },
+    "artifactName": "CK3-Continuum-${version}-win-x64.${ext}"
+  }
+}

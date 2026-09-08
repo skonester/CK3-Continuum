@@ -1,0 +1,25 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const { reportFor, commitCandidate } = require('../electron/conversion.cjs');
+test('conversion commits save and report together without overwriting existing destinations',async()=>{
+  const base=path.join(__dirname,'../test-output');await fs.mkdir(base,{recursive:true});
+  const root=await fs.mkdtemp(path.join(base,'commit-'));
+  const stage=path.join(root,'staging');await fs.mkdir(stage);
+  const file=path.join(stage,'candidate.ck3');await fs.writeFile(file,'candidate');
+  const result={profile:'roundtrip',changes:[],outputBytes:9,outputSha256:'hash'};
+  const report=reportFor(result,'original.ck3','copy.ck3');
+  const dest=path.join(root,'copy.ck3');
+  const summary=await commitCandidate(file,dest,report);
+  assert.equal(summary.engineTested,false);assert.equal(await fs.readFile(dest,'utf8'),'candidate');
+  assert.equal(JSON.parse(await fs.readFile(dest+'.conversion.json','utf8')).engineTested,false);
+  await fs.unlink(path.join(stage,'conversion.json'));
+  await assert.rejects(commitCandidate(file,dest,report),/already exists/);
+  assert.equal(await fs.readFile(dest,'utf8'),'candidate');
+  await fs.unlink(path.join(stage,'conversion.json'));
+  const collision=path.join(root,'existing.ck3');await fs.writeFile(collision,'original');
+  await assert.rejects(commitCandidate(file,collision,report),/already exists/);
+  assert.equal(await fs.readFile(collision,'utf8'),'original');
+  await assert.rejects(fs.stat(collision+'.conversion.json'),{code:'ENOENT'});
+});

@@ -1,0 +1,241 @@
+use std::{collections::HashMap, io::BufRead};
+
+use crate::Error;
+
+/// Resolves binary 16bit tokens to field names
+///
+/// One can create their own `TokenResolver` or rely on the HashMap implementation
+///
+/// ```
+/// use std::collections::HashMap;
+/// use jomini::binary::TokenResolver;
+///
+/// let mut map = HashMap::new();
+/// map.insert(0x2d82, String::from("field1"));
+///
+/// assert_eq!(map.resolve(0x2d82), Some("field1"));
+/// ```
+///
+/// The HashMap implementation works with string slices as well
+///
+/// ```
+/// use std::collections::HashMap;
+/// use jomini::binary::TokenResolver;
+///
+/// let mut map = HashMap::new();
+/// map.insert(0x2d82, "field1");
+///
+/// assert_eq!(map.resolve(0x0000), None);
+/// ```
+pub trait TokenResolver {
+    /// Return the string field name of the 16bit token if found
+    fn resolve(&self, token: u16) -> Option<&str>;
+
+    /// Return the string value for the lookup index if found.
+    ///
+    /// Both `LookupU8` and `LookupU16` binary tokens are resolved through this method.
+    /// `LookupU8` indices (0-254) are upcasted to u16 before calling this method.
+    /// Since `LookupU16` indices are always >=255 in practice, there is no namespace collision.
+    ///
+    /// By default this returns `None`.
+    fn lookup(&self, _index: u32) -> Option<&str> {
+        None
+    }
+
+    /// Return whether [`TokenResolver::resolve`] will always return `None`.
+    ///
+    /// By default this returns `false`
+    ///
+    /// This method is not used by jomini itself, but rather targeted at
+    /// downstream save file libraries, who accept an application configured
+    /// [`TokenResolver`]. If the application is not configured for ironman
+    /// support, save file parsers can still handle plain text files, so
+    /// `is_empty` allows the save parsers to lazily check the validity of a
+    /// [`TokenResolver`] when the binary format is encountered. Thus, allowing
+    /// for better error messages. Instead of "missing field" errors, the save
+    /// file libraries can raise a more descriptive "binary file encountered but
+    /// tokens are not configured", as only they know if a non-zero amount of
+    /// tokens need to be resolved for a successful deserialization.
+    ///
+    /// There's not a way for jomini to know whether an empty [`TokenResolver`]
+    /// constitutes an error, as the client may only be deserializing data from
+    /// keys that are already strings. Or, alternatively, direct token
+    /// deserialization is exclusively used.
+    fn is_empty(&self) -> bool {
+        false
+    }
+}
+
+impl<S, V> TokenResolver for HashMap<u16, V, S>
+where
+    S: ::std::hash::BuildHasher,
+    V: AsRef<str>,
+{
+    fn resolve(&self, token: u16) -> Option<&str> {
+        self.get(&token).map(|x| x.as_ref())
+    }
+
+    fn is_empty(&self) -> bool {
+        self.is_empty()
+    }
+}
+
+impl<T: TokenResolver> TokenResolver for &'_ T {
+    fn resolve(&self, token: u16) -> Option<&str> {
+        (**self).resolve(token)
+    }
+
+    fn lookup(&self, index: u32) -> Option<&str> {
+        (**self).lookup(index)
+    }
+
+    fn is_empty(&self) -> bool {
+        (**self).is_empty()
+    }
+}
+
+impl<T: TokenResolver + ?Sized> TokenResolver for Box<T> {
+    fn resolve(&self, token: u16) -> Option<&str> {
+        (**self).resolve(token)
+    }
+
+    fn lookup(&self, index: u32) -> Option<&str> {
+        (**self).lookup(index)
+    }
+
+    fn is_empty(&self) -> bool {
+        (**self).is_empty()
+    }
+}
+
+/// Customize how the deserializer reacts when a token can't be resolved
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum FailedResolveStrategy {
+    /// Stop parsing and return an error
+    Error,
+
+    /// Stringify the token as hexadecimal
+    Stringify,
+
+    /// Ignore the token
+    Ignore,
+}
+
+/// A basic token resolver that facilitates loading tokens from an external
+/// source.
+///
+/// This token resolver is geared towards testing use cases and iteration. It
+/// uses a dense index for fast resolution at the cost of approximately 136 KiB
+/// of fixed indexing overhead.
+pub struct BasicTokenResolver {
+    /// Maps tokens to positions in `values`.
+    indices: Box<[u16]>,
+    /// Marks which entries in `indices` have been initialized.
+    occupied: Box<[u64]>,
+    values: Vec<Box<str>>,
+}
+
+impl BasicTokenResolver {
+    const TOKEN_COUNT: usize = 1 << u16::BITS;
+    const OCCUPIED_WORDS: usize = Self::TOKEN_COUNT / u64::BITS as usize;
+
+    #[inline]
+    fn location(token: u16) -> (usize, usize, u64) {
+        let slot = usize::from(token);
+        let word = slot / u64::BITS as usize;
+        let mask = 1 << (slot % u64::BITS as usize);
+        (slot, word, mask)
+    }
+
+    fn insert(&mut self, token: u16, value: Box<str>) {
+        let (slot, word, mask) = Self::location(token);
+
+        if self.occupied[word] & mask == 0 {
+            self.indices[slot] = self.values.len() as u16;
+            self.occupied[word] |= mask;
+            self.values.push(value);
+        } else {
+            self.values[self.indices[slot] as usize] = value;
+        }
+    }
+
+    /// Create resolver from a `BufRead` implementation over a space delimited
+    /// text format:
+    ///
+    /// ```plain
+    /// 0xffff my_test_token
+    /// 0xeeee my_test_token2
+    /// ```
+    pub fn from_text_lines<T>(mut reader: T) -> Result<Self, Error>
+    where
+        T: BufRead,
+    {
+        let mut resolver = Self {
+            indices: vec![0; Self::TOKEN_COUNT].into_boxed_slice(),
+            occupied: vec![0; Self::OCCUPIED_WORDS].into_boxed_slice(),
+            values: Vec::new(),
+        };
+        let mut line = String::new();
+        let mut pos = 0;
+        while reader.read_line(&mut line)? != 0 {
+            let (num, text) = line
+                .split_once(' ')
+                .ok_or_else(|| Error::invalid_syntax("expected to split line", pos))?;
+
+            let z = u16::from_str_radix(num.trim_start_matches("0x"), 16)
+                .map_err(|_| Error::invalid_syntax("invalid ironman token", pos))?;
+
+            pos += line.len();
+            resolver.insert(z, Box::from(text.trim_ascii_end()));
+            line.clear();
+        }
+
+        resolver.values.shrink_to_fit();
+        Ok(resolver)
+    }
+}
+
+impl TokenResolver for BasicTokenResolver {
+    #[inline]
+    fn resolve(&self, token: u16) -> Option<&str> {
+        let (slot, word, mask) = Self::location(token);
+        if self.occupied[word] & mask == 0 {
+            return None;
+        }
+
+        Some(self.values[self.indices[slot] as usize].as_ref())
+    }
+
+    fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn can_create_resolve() {
+        let data = b"0xffff my_test_token\n0xeeee my_test_token2";
+        let resolver = BasicTokenResolver::from_text_lines(&data[..]).unwrap();
+        assert_eq!(resolver.resolve(0xffff), Some("my_test_token"));
+        assert_eq!(resolver.resolve(0xeeee), Some("my_test_token2"));
+    }
+
+    #[test]
+    fn duplicate_token_uses_last_value() {
+        let data = b"0x1234 first\n0x1234 second";
+        let resolver = BasicTokenResolver::from_text_lines(&data[..]).unwrap();
+        assert_eq!(resolver.resolve(0x1234), Some("second"));
+    }
+
+    #[test]
+    fn supports_token_boundaries() {
+        let data = b"0x0000 first\n0xffff last";
+        let resolver = BasicTokenResolver::from_text_lines(&data[..]).unwrap();
+        assert_eq!(resolver.resolve(0x0000), Some("first"));
+        assert_eq!(resolver.resolve(0xffff), Some("last"));
+        assert_eq!(resolver.resolve(0x8000), None);
+    }
+}

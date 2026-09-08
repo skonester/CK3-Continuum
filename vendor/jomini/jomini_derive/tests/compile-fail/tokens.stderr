@@ -1,0 +1,5 @@
+error: Model does not have #[jomini(token = x)] defined for all fields
+ --> tests/compile-fail/tokens.rs:5:12
+  |
+5 | pub struct Model {
+  |            ^^^^^

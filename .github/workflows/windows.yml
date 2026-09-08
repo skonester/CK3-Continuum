@@ -1,0 +1,38 @@
+name: Windows prototype
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Set up Rust
+        run: rustup toolchain install 1.94.0 --profile minimal
+      - name: Select Rust
+        run: rustup override set 1.94.0
+      - run: npm ci
+      - run: npm run native:build
+      - run: npm run build
+      - run: npm test
+      - run: npm run test:desktop
+      - name: Package Windows app
+        run: npx electron-builder --win zip --x64
+      - name: Verify packaged app
+        shell: pwsh
+        run: |
+          $env:CONTINUUM_EXE = Join-Path $PWD 'release-0.2.1/win-unpacked/CK3 Continuum.exe'
+          npm run test:desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ck3-continuum-windows-x64
+          path: release-0.2.1/*.zip
