@@ -69,6 +69,12 @@ fn atom_end(data: &[u8], start: usize, end: usize) -> Result<usize> {
     }
     Ok(i)
 }
+// CK3 serializes a mod identifier that is literally "}" (seen in character_lookup)
+// as `}=id`; that brace is a key, not a close. Mirrors the inspector's rule.
+fn brace_is_key(data: &[u8], i: usize, end: usize) -> bool {
+    let next = whitespace(data, i + 1, end);
+    next < end && data[next] == b'='
+}
 fn value_end(data: &[u8], start: usize, end: usize) -> Result<usize> {
     if start >= end {
         return Err(fail("missing value"));
@@ -96,6 +102,7 @@ fn value_end(data: &[u8], start: usize, end: usize) -> Result<usize> {
                     return Err(fail("nesting limit exceeded"));
                 }
             }
+            b'}' if brace_is_key(data, i, end) => {}
             b'}' => {
                 depth -= 1;
                 if depth == 0 {
@@ -118,7 +125,14 @@ fn entries(data: &[u8], start: usize, end: usize) -> Result<Vec<Entry>> {
         i < end
     } {
         let key_start = i;
-        let key_end = value_end(data, i, end)?;
+        let key_end = if data[i] == b'=' {
+            // CK3 writes cooldowns for decisions that no longer exist as `=date`: an empty key.
+            i
+        } else if data[i] == b'}' && brace_is_key(data, i, end) {
+            i + 1
+        } else {
+            value_end(data, i, end)?
+        };
         i = whitespace(data, key_end, end);
         if i < end && data[i] == b'=' {
             let start = whitespace(data, i + 1, end);
@@ -229,6 +243,16 @@ fn apply(data: &[u8], edits: &[Patch]) -> Result<Vec<u8>> {
     }
     Ok(output)
 }
+// Sources from 1.16.1 through 1.18.x share the pre-1.19 map. The per-field rules below
+// skip records already in the target shape and fail closed on mixed ones, so point
+// releases and intermediate versions migrate through the same profile.
+fn supported_source_version(version: &str) -> bool {
+    let mut parts = version.split('.').map(|p| p.parse::<u32>());
+    match (parts.next(), parts.next()) {
+        (Some(Ok(1)), Some(Ok(minor))) => (16..=18).contains(&minor),
+        _ => false,
+    }
+}
 fn plan(data: &[u8], mode: &str) -> Result<Vec<Patch>> {
     if mode == "roundtrip" {
         return Ok(Vec::new());
@@ -239,9 +263,9 @@ fn plan(data: &[u8], mode: &str) -> Result<Vec<Patch>> {
     let root = entries(data, 0, data.len())?;
     let meta = children(data, required(data, &root, b"meta_data")?)?;
     let version = required(data, &meta, b"version")?;
-    if scalar(data, version)? != "1.16.1" {
+    if !supported_source_version(scalar(data, version)?) {
         return Err(fail(
-            "experimental profile requires embedded version 1.16.1",
+            "experimental profile requires embedded version 1.16.1 through 1.18.x",
         ));
     }
     let mut edits = vec![patch(

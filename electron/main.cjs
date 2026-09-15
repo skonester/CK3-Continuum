@@ -4,7 +4,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const fs = require('node:fs/promises');
 const { buildReport, writeReport } = require('./report.cjs');
-const { reportFor, commitCandidate } = require('./conversion.cjs');
+const { reportFor, commitCandidate, supportedSourceVersion } = require('./conversion.cjs');
 
 const smoke = !app.isPackaged && process.env.CK3_SMOKE === '1';
 if (smoke) {
@@ -83,8 +83,8 @@ handle('save:convert', async (mode) => {
   if (busy) throw new Error('Wait for the current operation to finish.');
   if (!saves.source || !sourcePaths.source) throw new Error('Inspect a campaign first.');
   if (!['roundtrip', 'experimental-1.16.1-to-1.19.0.6', 'experimental-random-regions-1.16.1-to-1.19.0.6'].includes(mode)) throw new Error('Unknown conversion profile.');
-  if (mode !== 'roundtrip' && saves.source.inspection.metadata.find(f => f.key === 'version')?.value !== '1.16.1') {
-    throw new Error('The experimental migration profile requires version 1.16.1. Use writer control for other supported text saves.');
+  if (mode !== 'roundtrip' && !supportedSourceVersion(saves.source.inspection.metadata.find(f => f.key === 'version')?.value)) {
+    throw new Error('The experimental migration profile requires a 1.16.1 to 1.18.x source save. Use writer control for other supported text saves.');
   }
   if (mode === 'experimental-random-regions-1.16.1-to-1.19.0.6' && (!sourcePaths.reference || saves.reference?.inspection.metadata.find(f => f.key === 'version')?.value !== '1.19.0.6')) {
     throw new Error('Open a 1.19.0.6 reference save to initialize new regions.');

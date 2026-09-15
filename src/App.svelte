@@ -11,7 +11,7 @@
   let query = '';
   let conversionMode: ConversionMode = 'experimental-random-regions-1.16.1-to-1.19.0.6';
   let conversion: ConversionSummary | null = null;
-  $: canConvert = !!source && !busy && desktop && (conversionMode === 'roundtrip' || version === '1.16.1') && (conversionMode !== 'experimental-random-regions-1.16.1-to-1.19.0.6' || meta(reference, 'version') === '1.19.0.6');
+  $: canConvert = !!source && !busy && desktop && (conversionMode === 'roundtrip' || sourceSupported) && (conversionMode !== 'experimental-random-regions-1.16.1-to-1.19.0.6' || meta(reference, 'version') === '1.19.0.6');
   async function convertSave() {
     if (!window.continuum || !canConvert) return;
     busy = 'convert'; error = ''; notice = ''; conversion = null;
@@ -32,6 +32,8 @@
   const bytes = (n: number) => `${(n / 1024 / 1024).toFixed(1)} MB`;
   const meta = (save: InspectedSave | null, key: string) => save?.inspection.metadata.find(f => f.key === key)?.value || '—';
   $: version = meta(source, 'version');
+  // Mirrors supported_source_version in native/src/conversion.rs: 1.16.1 through 1.18.x.
+  $: sourceSupported = /^1\.(16|17|18)(?:\.|$)/.test(version);
   $: sourceSections = new Map(source?.inspection.sections.map(s => [s.key, s]) || []);
   $: referenceSections = new Map(reference?.inspection.sections.map(s => [s.key, s]) || []);
   $: sectionNames = [...new Set([...sourceSections.keys(), ...referenceSections.keys()])].sort();
@@ -145,8 +147,8 @@
           <p>Writes a separate .ck3 file and a conversion report. Your source stays untouched.</p>
           <label class="conversion-label" for="conversion-mode">Conversion profile</label>
           <select id="conversion-mode" bind:value={conversionMode} disabled={!!busy}>
-            <option value="experimental-random-regions-1.16.1-to-1.19.0.6">1.16.1 -> 1.19.0.6: random regional kingdoms</option>
-            <option value="experimental-1.16.1-to-1.19.0.6">1.16.1 → 1.19.0.6 · structural test</option>
+            <option value="experimental-random-regions-1.16.1-to-1.19.0.6">1.16.1 – 1.18.x -> 1.19.0.6: random regional kingdoms</option>
+            <option value="experimental-1.16.1-to-1.19.0.6">1.16.1 – 1.18.x → 1.19.0.6 · structural test</option>
             <option value="roundtrip">Writer control · no migration</option>
           </select>
           {#if conversionMode === 'roundtrip'}
@@ -154,10 +156,11 @@
           {:else if conversionMode === 'experimental-random-regions-1.16.1-to-1.19.0.6'}
             <p>Registers missing regions and creates new families in independent feudal kingdoms with county vassals. Existing rulers, families, and cultures are preserved. Requires a 1.19.0.6 reference save for geography and regional defaults.</p>
             <p>Advanced eastern governments and changes to existing provinces still need migration. Test portraits and new realms in CK3 before continuing the campaign.</p>
+            {#if source && !sourceSupported}<p class="conversion-warning">This profile requires a 1.16.1 to 1.18.x source save.</p>{/if}
             {#if meta(reference, 'version') !== '1.19.0.6'}<p class="conversion-warning">Open a 1.19.0.6 reference save from Overview.</p>{/if}
           {:else}
             <p>Renames religion/faith template fields, groups title display names, and updates the version label. Map, trait, portrait, mod, and system migration remain unresolved.</p>
-            {#if source && version !== '1.16.1'}<p class="conversion-warning">This profile requires a 1.16.1 source save.</p>{/if}
+            {#if source && !sourceSupported}<p class="conversion-warning">This profile requires a 1.16.1 to 1.18.x source save.</p>{/if}
           {/if}
           <button class="button primary full" data-testid="convert-save" disabled={!canConvert} onclick={convertSave}><Icon name="arrow" size={16} />{conversionMode === 'roundtrip' ? 'Create writer-control save' : 'Convert save'}</button>
           {#if !source}<p>Open a campaign from Overview to begin.</p>{/if}

@@ -10,6 +10,13 @@ const WARNINGS = [
   'Mod dependencies, generated-world initialization, administrative/economic changes, and new managers are not reconciled.',
   'The target version label identifies this test candidate; it is not a compatibility certificate.'
 ];
+// Mirrors supported_source_version in native/src/conversion.rs: 1.16.1 through 1.18.x.
+function supportedSourceVersion(version) {
+  const m = /^1\.(\d+)(?:\.|$)/.exec(version || '');
+  if (!m) return false;
+  const minor = Number(m[1]);
+  return minor >= 16 && minor <= 18;
+}
 function reportFor(result, sourceName, outputName) {
   const counts = {};
   for (const change of result.changes) counts[change.rule] = (counts[change.rule] || 0) + 1;
@@ -54,4 +61,4 @@ async function commitCandidate(stagedSave, destination, report) {
     profile: report.profile, counts: report.counts, outputBytes: report.outputBytes,
     outputSha256: report.outputSha256, warnings: report.warnings, engineTested: false };
 }
-module.exports = { reportFor, commitCandidate, WARNINGS };
+module.exports = { reportFor, commitCandidate, supportedSourceVersion, WARNINGS };

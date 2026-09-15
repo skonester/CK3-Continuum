@@ -68,6 +68,20 @@ test('scoped structural migration preserves IDs, traits, histories, duplicates, 
   const modern=await inspectSave(output);
   await assert.rejects(writeCandidate(output,path.join(out,'double.ck3'),modern.gamestateSha256,profile),/requires embedded version/);
 });
+test('structural profile accepts 1.16.1 through 1.18.x sources and rejects others',async()=>{
+  const withVersion=(name,version)=>{const m=meta.replace('1.16.1',version),file=path.join(out,name);
+    fs.writeFileSync(file,'SAV0100abcdef12'+Buffer.byteLength(m).toString(16).padStart(8,'0')+'\n'+m+world);return file;};
+  for(const version of ['1.16.2.3','1.17.0','1.18.4']){
+    const input=withVersion(`v${version}.ck3`,version),output=path.join(out,`v${version}-out.ck3`),info=await inspectSave(input);
+    const result=await writeCandidate(input,output,info.gamestateSha256,profile);
+    assert.equal(result.changes.filter(c=>c.rule==='version-label').length,1);
+    assert.ok(extract(output).game.toString().includes('version="1.19.0.6"'));
+  }
+  for(const version of ['1.15.0','1.19.0.6','1.20.0','2.16.1','']){
+    const input=withVersion(`bad-v${version||'empty'}.ck3`,version),info=await inspectSave(input);
+    await assert.rejects(writeCandidate(input,path.join(out,`bad-v${version||'empty'}-out.ck3`),info.gamestateSha256,profile),/requires embedded version/);
+  }
+});
 test('stale inspection and output collision never replace files',async()=>{
   const input=fixture('stable.ck3'),output=path.join(out,'existing.ck3'),info=await inspectSave(input);
   fs.writeFileSync(output,'keep');

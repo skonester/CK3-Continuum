@@ -104,3 +104,16 @@ test('reference regiments must originate in the importing province',async()=>{
  await assert.rejects(writeCandidate(input,output,info.gamestateSha256,profile,ref),/regiment.*origin/);
  assert.ok(!fs.existsSync(output));
 });
+test('CK3 empty keys and a literal "}" key survive conversion untouched',async()=>{
+ // Real saves: removed-mod decision cooldowns serialize as `=date`; a mod character id of `}` serializes as `}=id`.
+ const cooldowns='decision_cooldowns={ =1.1.1 hold_court_decision=1288.7.29 }';
+ const lookup='character_lookup={ historical_1=10 }=61 historical_deleted=60 }';
+ const quirky=old.replace('landed_data={ domain={ 90 91 92 } }',`landed_data={ domain={ 90 91 92 } ${cooldowns} }`).replace('character_lookup={ historical_1=10 historical_deleted=60 }',lookup);
+ assert.ok(quirky.includes(cooldowns)&&quirky.includes(lookup));
+ const input=save('quirks.ck3',quirky),ref=save('quirks-reference.ck3',reference,'1.19.0.6'),output=path.join(folder,'quirks-output.ck3');
+ const info=await inspectSave(input),result=await writeCandidate(input,output,info.gamestateSha256,profile,ref);
+ const text=body(output);
+ assert.ok(text.includes(cooldowns));assert.ok(text.includes(lookup));
+ assert.ok(text.includes('first_name="Original spouse"'));
+ assert.equal(result.unchangedSpansVerified,true);assert.equal(result.outputVerified,true);
+});

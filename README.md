@@ -34,13 +34,13 @@ For builds downloaded from GitHub Actions, extract the artifact download ZIP to 
 
 **You need two saves for the default conversion: your old campaign and a freshly saved new game from the version you want to play. Without a matching reference save, the default conversion will not work and the Convert save button stays disabled.** Opening and inspecting an old save alone still works.
 
-The current conversion profile requires an old **1.16.1** campaign and a **1.19.0.6** reference. Here, "current version" means the target version supported by the conversion profile; installing a later CK3 release does not automatically make that version supported.
+The current conversion profiles accept an old campaign from **1.16.1 through 1.18.x** (the pre-1.19 map) and require a **1.19.0.6** reference. They were researched on a 1.16.1 campaign; 1.17 and 1.18 sources pass through the same per-field rules, which skip records already in the target shape. Here, "current version" means the target version supported by the conversion profile; installing a later CK3 release does not automatically make that version supported.
 
 1. **Keep your old campaign save.** This is the source campaign you want to continue.
 2. **Create a fresh reference in CK3.** Launch the target game version with the base-game/DLC setup you intend to use, start a new campaign, and save it immediately as a separate local `.ck3` file. Use that fresh new-game save as the reference. Re-saving your old campaign in the new version is not a substitute. If you do not have a fresh save for 1.19.0.6, use the [included reference below](#included-reference-save).
 3. **Open your old save in CK3 Continuum.** In **Overview**, select your old campaign as the campaign/source save and let inspection finish.
 4. **Add the fresh reference.** In **Overview**, click **Add reference save** and select the new-game save or the downloaded reference. Check that the displayed reference version is **1.19.0.6**.
-5. **Create the converted save.** Open **View the migration plan**, select **1.16.1 -> 1.19.0.6: random regional kingdoms**, and click **Convert save**. Choose a new output filename. The app writes a separate converted save and a conversion report.
+5. **Create the converted save.** Open **View the migration plan**, select **1.16.1 – 1.18.x -> 1.19.0.6: random regional kingdoms** (if your save already contains every county in the reference, use the structural profile instead), and click **Convert save**. Choose a new output filename. The app writes a separate converted save and a conversion report.
 6. **Test the result in the target CK3 version.** Load the converted save, inspect your character and world, advance time, save, exit, and reload before continuing the campaign. Keep the original campaign and conversion report.
 
 The reference provides the target version's map structures and regional defaults needed to initialize newly introduced regions. Your old save remains the campaign being migrated. A reference must match the supported target version; references from AGOT or other overhaul mods are outside the current supported workflow.
@@ -68,7 +68,7 @@ The broader aim is to work with newer CK3 versions and campaigns using the **bas
 - **Inspection versus conversion:** being able to open and inspect a save does not establish that its converted campaign will run correctly in CK3.
 - **Tested so far:** v0.3.1 has a confirmed 85-day simulation and saved checkpoint for the research campaign. Exit/reload, succession, and longer simulation remain untested. The original research source was modded, so this is not a compatibility test for every base-game, DLC, or mod combination.
 
-Version 0.3.1 adds experimental random regional kingdoms for newly introduced map regions and fixes the first-tick regiment crash found in v0.3.0. Read the [migration details and limits](docs/random-regions.md) and [validation results](docs/validation.md) before choosing a conversion profile. Conversions are written to a new save, with a change journal; the original is preserved.
+Version 0.3.2 fixes the "operator without a key" error when opening older campaigns (CK3 writes empty keys for removed-mod decision cooldowns and can write a `}` character id), and accepts 1.16.1 through 1.18.x source saves in both conversion profiles. Version 0.3.1 added experimental random regional kingdoms for newly introduced map regions and fixes the first-tick regiment crash found in v0.3.0. Read the [migration details and limits](docs/random-regions.md) and [validation results](docs/validation.md) before choosing a conversion profile. Conversions are written to a new save, with a change journal; the original is preserved.
 
 ![Campaign workspace](docs/workspace.png)
 
@@ -140,7 +140,7 @@ Optionally exercise the research pair without copying it into the repository:
 npm run test:desktop -- "C:\path\old-1.16.1.ck3" "C:\path\reference-1.19.ck3"
 ```
 
-That research smoke expects embedded source version 1.16.1. It verifies original hashes before and after, not engine compatibility.
+That research smoke expects an embedded source version from 1.16.1 through 1.18.x. It verifies original hashes before and after, not engine compatibility.
 
 Run `npm run test:portable` after packaging to test the actual portable executable. The test copies only the `.exe` to an empty folder and checks extraction, startup, the UI, renderer isolation, and the main-process bridge. Set `CONTINUUM_EXE` to test another portable build. The full native inspection/conversion/export smoke uses `npm run test:desktop` with `CONTINUUM_EXE` pointing to the executable in `win-unpacked`. CI runs both checks before publishing.
 

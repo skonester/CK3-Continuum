@@ -8,7 +8,7 @@ The structural-only profile below remains available as a diagnostic control.
 
 # Experimental conversion (v0.2.0)
 
-Choose **Migration plan → Create a test save**. Writer control rebuilds the supported container with identical gamestate/metadata and unchanged version. The structural profile requires exactly 1.16.1 and creates a separate 1.19.0.6 candidate.
+Choose **Migration plan → Create a test save**. Writer control rebuilds the supported container with identical gamestate/metadata and unchanged version. The structural profile requires an embedded source version from 1.16.1 through 1.18.x and creates a separate 1.19.0.6 candidate.
 
 ## Implemented rules
 

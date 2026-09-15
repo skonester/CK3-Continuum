@@ -126,12 +126,49 @@ fn flush_bare(frame: &mut Frame, is_root: bool) -> Result<()> {
     Ok(())
 }
 
+fn set_key(frame: &mut Frame, depth: usize, text: &str) -> Result<()> {
+    flush_bare(frame, depth == 0)?;
+    // Only root and metadata keys need their actual bytes. Deeper keys
+    // are represented by an empty marker, bounding allocations.
+    let keep = depth == 0 || (depth == 1 && frame.owner.as_deref() == Some("meta_data"));
+    frame.pending = Some(if keep { text.to_owned() } else { String::new() });
+    Ok(())
+}
+
+fn close_frame(stack: &mut Vec<Frame>, result: &mut Scan) -> Result<()> {
+    let depth = stack.len() - 1;
+    flush_bare(stack.last_mut().expect("root frame exists"), false)?;
+    let closed = stack.pop().expect("non-root frame");
+    if depth == 1
+        && let Some(key) = closed.owner
+    {
+        result
+            .sections
+            .get_mut(&key)
+            .expect("registered root block")
+            .1 += closed.entries;
+    }
+    Ok(())
+}
+
 fn scan(reader: impl Read) -> Result<Scan> {
     let mut reader = TokenReader::from_reader_with_buf(reader, vec![0; TOKEN_BUFFER]);
     let mut stack = vec![Frame::default()];
     let mut result = Scan::default();
+    // A `}` is only a close once the next token proves it is not a key (see Token::Close).
+    let mut deferred_close = false;
     while let Some(token) = reader.next().map_err(fail)? {
         result.tokens += 1;
+        if std::mem::take(&mut deferred_close) {
+            if matches!(token, Token::Operator(_)) {
+                // CK3 serializes a mod identifier that is literally "}" (seen in
+                // character_lookup) as `}=id`; that brace is the entry's key.
+                let depth = stack.len() - 1;
+                set_key(stack.last_mut().expect("root frame exists"), depth, "}")?;
+            } else {
+                close_frame(&mut stack, &mut result)?;
+            }
+        }
         let depth = stack.len() - 1;
         let frame = stack.last_mut().expect("root frame exists");
         match token {
@@ -158,20 +195,24 @@ fn scan(reader: impl Read) -> Result<Scan> {
                         });
                     }
                 } else {
-                    flush_bare(frame, depth == 0)?;
-                    // Only root and metadata keys need their actual bytes. Deeper keys
-                    // are represented by an empty marker, bounding allocations.
-                    let keep =
-                        depth == 0 || (depth == 1 && frame.owner.as_deref() == Some("meta_data"));
-                    frame.pending = Some(if keep { text.to_owned() } else { String::new() });
+                    set_key(frame, depth, text)?;
                 }
             }
             Token::Operator(op) => {
                 if op != Operator::Equal {
                     return Err(fail("unsupported non-equality save operator"));
                 }
-                if frame.pending.is_none() || frame.awaiting_value {
+                if frame.awaiting_value {
                     return Err(fail("operator without a key"));
+                }
+                if frame.pending.is_none() {
+                    // CK3 writes cooldowns for decisions that no longer exist (removed
+                    // mods) as `=date`: an empty key. The engine loads it, so accept it
+                    // inside blocks; the root stays strict.
+                    if depth == 0 {
+                        return Err(fail("operator without a key"));
+                    }
+                    frame.pending = Some(String::new());
                 }
                 frame.awaiting_value = true;
             }
@@ -203,19 +244,12 @@ fn scan(reader: impl Read) -> Result<Scan> {
                 if depth == 0 {
                     return Err(fail("unexpected closing brace"));
                 }
-                flush_bare(frame, false)?;
-                let closed = stack.pop().expect("non-root frame");
-                if depth == 1
-                    && let Some(key) = closed.owner
-                {
-                    result
-                        .sections
-                        .get_mut(&key)
-                        .expect("registered root block")
-                        .1 += closed.entries;
-                }
+                deferred_close = true;
             }
         }
+    }
+    if deferred_close {
+        close_frame(&mut stack, &mut result)?;
     }
     if stack.len() != 1 {
         return Err(fail("unclosed block at end of gamestate"));

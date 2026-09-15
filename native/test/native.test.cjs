@@ -81,6 +81,19 @@ test('bad ZIP CRC rejects even when its text is valid', async () => {
   const { file } = zipFixture('bad-crc.ck3', true);
   await assert.rejects(inspectSave(file), /checksum|crc/i);
 });
+test('CK3 empty keys and a literal "}" key inside blocks are tolerated', async () => {
+  // 1.16 saves write cooldowns for removed decisions as `=date`; a 1.18 save wrote a
+  // character_lookup entry whose id was literally `}`. CK3 loads both.
+  const rest = 'living={ 1={ decision_cooldowns={ =1.1.1 hold_court_decision=1288.7.29 } } }\n' +
+    'character_lookup={ zubu_8=34327 }=34061 }\nafter={ x=1 }\n';
+  const report = await inspectSave(textFixture('ck3-quirks.ck3', rest));
+  const sections = Object.fromEntries(report.sections.map(s => [s.key, s]));
+  assert.equal(sections.living.childEntries, 1);
+  assert.equal(sections.character_lookup.childEntries, 2);
+  assert.equal(sections.after.childEntries, 1);
+  assert.equal(report.maxDepth, 3);
+  await assert.rejects(inspectSave(textFixture('bad-double-op.ck3', 'x={ a= =1 }')), /operator without a key/);
+});
 test('malformed/truncated syntax is rejected', async () => {
   for (const [name, rest] of Object.entries({ open: 'x={', close: '}', value: 'x=', key: '=1', quote: 'x="unfinished' })) {
     await assert.rejects(inspectSave(textFixture(`bad-${name}.ck3`, rest)));
