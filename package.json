@@ -1,7 +1,7 @@
 {
   "name": "ck3-continuum",
   "productName": "CK3 Continuum",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "A local CK3 save inspection and migration research desktop prototype.",
   "author": "CK3 Continuum contributors",
   "license": "MIT",
@@ -38,7 +38,7 @@
     "appId": "org.ck3continuum.prototype",
     "asar": true,
     "directories": {
-      "output": "release-0.3.2"
+      "output": "release-0.4.2"
     },
     "files": [
       "dist/**/*",

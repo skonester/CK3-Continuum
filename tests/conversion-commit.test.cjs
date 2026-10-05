@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { reportFor, commitCandidate } = require('../electron/conversion.cjs');
+const { reportFor, commitCandidate, supportedSourceVersion, targetVersion } = require('../electron/conversion.cjs');
 test('conversion commits save and report together without overwriting existing destinations',async()=>{
   const base=path.join(__dirname,'../test-output');await fs.mkdir(base,{recursive:true});
   const root=await fs.mkdtemp(path.join(base,'commit-'));
@@ -22,4 +22,20 @@ test('conversion commits save and report together without overwriting existing d
   await assert.rejects(commitCandidate(file,collision,report),/already exists/);
   assert.equal(await fs.readFile(collision,'utf8'),'original');
   await assert.rejects(fs.stat(collision+'.conversion.json'),{code:'ENOENT'});
+});
+test('desktop profile guards keep legacy sources and the new 1.20 pair distinct',()=>{
+  const mode='experimental-1.19.0.6-to-1.20.0.3';
+  assert.equal(supportedSourceVersion('1.19.0.6',mode),true);
+  for(const v of ['1.18.4','1.19.0.5','1.20.0.3',''])assert.equal(supportedSourceVersion(v,mode),false);
+  assert.equal(supportedSourceVersion('1.18.4'),true);assert.equal(supportedSourceVersion('1.19.0.6'),false);
+  assert.equal(targetVersion(mode),'1.20.0.3');assert.equal(targetVersion('experimental-1.16.1-to-1.19.0.6'),'1.19.0.6');
+  const report=reportFor({profile:mode,changes:[{rule:'unresolved-holy-site'},{rule:'domicile-owner-title'},{rule:'orphan-domicile-tombstone'}]},'barbara.ck3','test.ck3');
+  assert.equal(report.engineTested,false);assert.equal(report.compatibility,'unverified');
+  assert.ok(report.warnings.some(w=>w.includes('1 holy sites have no target reference definition')));
+  assert.ok(report.warnings.some(w=>w.includes('1 missing camp/estate owners were restored')));
+  assert.ok(report.warnings.some(w=>w.includes('1 unowned camps/estates')&&w.includes('resources were removed')));
+  const cleanup=reportFor({profile:mode,changes:[{rule:'contract-republic-default'},{rule:'accolade-owned-list-with-inactive'}]},'barbara.ck3','clean.ck3');
+  assert.ok(cleanup.warnings.some(w=>w.includes('1 malformed five-entry republic')&&w.includes('selections')&&w.includes('discarded')));
+  assert.ok(cleanup.warnings.some(w=>w.includes('automatic succession')));
+  assert.ok(cleanup.warnings.some(w=>w.includes('existing acclaimed-knight assignments')&&w.includes('inactive knights may reactivate')));
 });

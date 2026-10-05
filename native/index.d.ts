@@ -31,4 +31,4 @@ export interface ConversionResult {
   elapsedMs: number; changes: ConversionChange[]; referenceSha256?: string;
 }
 /** Creates a new staged file, never replaces an existing path. Experimental; not engine-validated. */
-export function writeCandidate(input: string, output: string, expected: string, mode: 'roundtrip' | 'experimental-1.16.1-to-1.19.0.6' | 'experimental-random-regions-1.16.1-to-1.19.0.6', reference?: string): Promise<ConversionResult>;
+export function writeCandidate(input: string, output: string, expected: string, mode: 'roundtrip' | 'experimental-1.16.1-to-1.19.0.6' | 'experimental-random-regions-1.16.1-to-1.19.0.6' | 'experimental-1.19.0.6-to-1.20.0.3', reference?: string): Promise<ConversionResult>;

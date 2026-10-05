@@ -22,7 +22,7 @@ exports.writeCandidate = function writeCandidate(input, output, expected, mode, 
     if (typeof value !== 'string' || !value || value.includes('\0')) return Promise.reject(new TypeError('Expected a nonempty path without NUL bytes.'));
   }
   if (typeof expected !== 'string' || !/^[a-f0-9]{64}$/.test(expected)) return Promise.reject(new TypeError('Expected the inspected gamestate SHA-256.'));
-  if (!['roundtrip', 'experimental-1.16.1-to-1.19.0.6', 'experimental-random-regions-1.16.1-to-1.19.0.6'].includes(mode)) return Promise.reject(new TypeError('Unknown conversion profile.'));
+  if (!['roundtrip', 'experimental-1.16.1-to-1.19.0.6', 'experimental-random-regions-1.16.1-to-1.19.0.6', 'experimental-1.19.0.6-to-1.20.0.3'].includes(mode)) return Promise.reject(new TypeError('Unknown conversion profile.'));
   if (reference !== undefined && (typeof reference !== 'string' || !reference || reference.includes('\0'))) return Promise.reject(new TypeError('Expected a nonempty reference path without NUL bytes.'));
   const job = queue.then(() => binding.writeCandidate(input, output, expected, mode, reference));
   queue = job.catch(() => {});

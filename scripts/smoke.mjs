@@ -3,7 +3,9 @@ import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { inspectSave } from '../native/index.mjs';
 const root = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
+const appVersion = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8')).version;
 const out = path.join(root, 'test-output');
 await mkdir(out, { recursive: true });
 function fixture(version, entries) {
@@ -16,6 +18,11 @@ const fixtureReference = path.join(out, 'reference.ck3');
 await writeFile(fixtureSource, fixture('1.16.1', '1={} 2={}'));
 await writeFile(fixtureReference, fixture('1.19.0.6', '1={} 2={} 3={}'));
 const [source = fixtureSource, reference = fixtureReference] = process.argv.slice(2);
+const sourceVersion = (await inspectSave(source)).metadata.find(f => f.key === 'version')?.value;
+const referenceVersion = (await inspectSave(reference)).metadata.find(f => f.key === 'version')?.value;
+const upgrade = sourceVersion === '1.19.0.6' && referenceVersion === '1.20.0.3';
+const mode = upgrade ? 'experimental-1.19.0.6-to-1.20.0.3'
+  : process.env.CONTINUUM_WORLD_SMOKE === '1' ? 'experimental-random-regions-1.16.1-to-1.19.0.6' : 'experimental-1.16.1-to-1.19.0.6';
 const hash = async file => createHash('sha256').update(await readFile(file)).digest('hex');
 const before = await Promise.all([hash(source), hash(reference)]);
 const env = { ...process.env, CK3_SMOKE: '1' };
@@ -30,6 +37,7 @@ try {
   const page = await desktop.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
   await expect(page.getByRole('heading', { name: 'Your legacy, continued.' })).toBeVisible();
+  await expect(page.locator('.sidebar-footer')).toContainText(`v${appVersion}`);
   await desktop.evaluate(({ BrowserWindow }) => {
     const win = BrowserWindow.getAllWindows()[0];
     win.webContents.setBackgroundThrottling(false);
@@ -45,8 +53,22 @@ try {
   }, file);
   await choose(source);
   await page.getByTestId('open-source').click();
-  await expect(page.getByTestId('source-version')).toHaveText('1.16.1', { timeout: 30_000 });
+  await expect(page.getByTestId('source-version')).toHaveText(sourceVersion, { timeout: 30_000 });
   await expect(page.getByRole('button', { name: 'Export report' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Migration plan', exact: true }).click();
+  await expect(page.getByTestId('convert-save')).toBeDisabled();
+  if (upgrade) {
+    await expect(page.locator('#conversion-mode')).toHaveValue(mode);
+    const missingReference = await page.evaluate(mode => window.continuum.convertSave(mode), mode);
+    expect(missingReference.ok).toBe(false);
+    expect(missingReference.error).toContain('1.20.0.3 reference');
+    await page.locator('#conversion-mode').selectOption('experimental-1.16.1-to-1.19.0.6');
+    await expect(page.getByTestId('convert-save')).toBeDisabled();
+    const wrongProfile = await page.evaluate(() => window.continuum.convertSave('experimental-1.16.1-to-1.19.0.6'));
+    expect(wrongProfile.ok).toBe(false);
+    await page.locator('#conversion-mode').selectOption(mode);
+  }
+  await page.getByRole('button', { name: 'Overview', exact: true }).click();
   // Hold one real utility process at its request boundary to make cancellation
   // deterministic, independent of whether a tiny fixture parses in 2 ms.
   const waitingWorker = path.join(out, 'waiting-worker.cjs');
@@ -62,7 +84,15 @@ try {
   await page.getByTestId('open-source').click();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.locator('.notice')).toContainText('Inspection cancelled');
-  await expect(page.getByTestId('source-version')).toHaveText('1.16.1');
+  await expect(page.getByTestId('source-version')).toHaveText(sourceVersion);
+  if (upgrade) {
+    await choose(fixtureReference);
+    await page.getByTestId('open-reference').click();
+    await expect(page.getByText(path.basename(fixtureReference), { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Migration plan', exact: true }).click();
+    await expect(page.getByTestId('convert-save')).toBeDisabled();
+    await page.getByRole('button', { name: 'Overview', exact: true }).click();
+  }
   await choose(reference);
   await page.getByTestId('open-reference').click();
   await expect(page.getByText(path.basename(reference), { exact: true })).toBeVisible({ timeout: 30_000 });
@@ -91,15 +121,17 @@ try {
   await desktop.evaluate(({ dialog }, filePath) => {
     dialog.showSaveDialog = async () => ({ canceled: false, filePath });
   }, converted);
-  await expect(page.locator('#conversion-mode')).toHaveValue('experimental-random-regions-1.16.1-to-1.19.0.6');
-  await page.locator('#conversion-mode').selectOption(process.env.CONTINUUM_WORLD_SMOKE === '1' ? 'experimental-random-regions-1.16.1-to-1.19.0.6' : 'experimental-1.16.1-to-1.19.0.6');
+  await expect(page.locator('#conversion-mode')).toHaveValue(upgrade ? mode : 'experimental-random-regions-1.16.1-to-1.19.0.6');
+  await page.locator('#conversion-mode').selectOption(mode);
   await page.getByTestId('convert-save').click();
   await expect(page.getByRole('region', { name: 'Conversion result' })).toBeVisible({ timeout: 90_000 });
   const conversionReport = JSON.parse(await readFile(converted + '.conversion.json', 'utf8'));
   expect(conversionReport.engineTested).toBe(false);
   expect(conversionReport.outputVerified).toBe(true);
   expect(conversionReport.unchangedSpansVerified).toBe(true);
-  expect(conversionReport.counts['religion-faith-key']).toBeGreaterThan(0);
+  expect(conversionReport.profile).toBe(mode);
+  expect(conversionReport.counts['version-label']).toBe(1);
+  if (upgrade) expect(conversionReport.counts['faith-to-rite']).toBeGreaterThan(0);
   await page.getByTestId('convert-save').click();
   await expect(page.getByRole('alert')).toContainText('already exists');
   await page.getByRole('button', { name: 'Dismiss error' }).click();
@@ -127,7 +159,7 @@ try {
   await choose(malformed);
   await page.getByTestId('open-source').click();
   await expect(page.getByRole('alert')).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId('source-version')).toHaveText('1.16.1');
+  await expect(page.getByTestId('source-version')).toHaveText(sourceVersion);
   await page.getByRole('button', { name: 'Dismiss error' }).click();
   await choose(source);
   await page.getByTestId('open-source').click();
@@ -136,7 +168,7 @@ try {
   expect(errors).toEqual([]);
   console.log('Desktop smoke passed: isolated renderer, dialogs, native inspection, comparison, cancellation, export, collision protection, error recovery, source hashes.');
   await writeFile(path.join(out, 'desktop-verification.json'), JSON.stringify({
-    passed: true, source: path.basename(source), reference: path.basename(reference),
+    passed: true, source: path.basename(source), reference: path.basename(reference), profile: mode,
     originalHashesUnchanged: true, rendererErrors: errors, packaged: Boolean(process.env.CONTINUUM_EXE), conversion: true, conversionCancellation: true
   }, null, 2));
 } finally { await desktop.close(); }

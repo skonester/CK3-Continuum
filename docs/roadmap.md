@@ -1,12 +1,12 @@
 # Migration roadmap
 
-The desktop inspector and experimental regional converter are implemented. v0.3.1 has a confirmed 85-day engine simulation and saved checkpoint. The next gates are exit/reload and extended gameplay, including succession; see [validation](validation.md).
+The desktop inspector, regional converter, and v0.4.2 migration for **1.19.0.6 → 1.20.0.3** are implemented. v0.4.1 restores domicile ownership and advances at least 33 days with a normal exit. v0.4.2 adds opinion, contract, accolade and culture cleanup, plus confirmed aliases and obsolete queued-action removal. Fresh engine logs, individual removed-content mappings, church-system initialization, and save/reload testing remain; see [the log review](error-log-cleanup-1.20.md) and [1.20 behavior and limits](migration-1.20.md). The older v0.3.1 profile has a confirmed 85-day engine simulation and saved checkpoint, with exit/reload and extended gameplay still pending; see [validation](validation.md).
 
 | Milestone | State | Acceptance gate |
 | --- | --- | --- |
 | Native inspection + desktop | Implemented prototype | Synthetic and real-save inspection, UI/export tests, packaged Windows smoke |
 | Byte-preserving writer | Experimental; engine gate pending | Exact untouched-span preservation, metadata synchronization, validated no-op output that loads/saves/reloads in CK3 |
-| Narrow schema migration | Three experimental structural rule families | Isolated tests for religion/faith naming, title names, trait indices, required fields |
+| Narrow schema migration | Legacy structural rules plus experimental 1.20 faith/rite migration | Isolated tests for religion/faith/rite naming, title names, trait indices, required fields |
 | World and ID reconciliation | Experimental regional initialization; 3,036 military references verified after simulation | Correct changed-map mappings, namespace-safe references, coherent imported world at the source date |
 | Mods and system preservation | Research | Explicit source dependencies, generated cultures, administrative state, portraits, history |
 | Engine validation | Partial: load, corrected titles/poses, 85-day simulation and save passed | Load, simulate, succession, travel, save/reload, and extended stability tests |

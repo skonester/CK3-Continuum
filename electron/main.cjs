@@ -4,7 +4,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const fs = require('node:fs/promises');
 const { buildReport, writeReport } = require('./report.cjs');
-const { reportFor, commitCandidate, supportedSourceVersion } = require('./conversion.cjs');
+const { reportFor, commitCandidate, supportedSourceVersion, targetVersion } = require('./conversion.cjs');
 
 const smoke = !app.isPackaged && process.env.CK3_SMOKE === '1';
 if (smoke) {
@@ -82,12 +82,15 @@ handle('save:cancel', () => { if (!job) return false; job.cancel(); return true;
 handle('save:convert', async (mode) => {
   if (busy) throw new Error('Wait for the current operation to finish.');
   if (!saves.source || !sourcePaths.source) throw new Error('Inspect a campaign first.');
-  if (!['roundtrip', 'experimental-1.16.1-to-1.19.0.6', 'experimental-random-regions-1.16.1-to-1.19.0.6'].includes(mode)) throw new Error('Unknown conversion profile.');
-  if (mode !== 'roundtrip' && !supportedSourceVersion(saves.source.inspection.metadata.find(f => f.key === 'version')?.value)) {
-    throw new Error('The experimental migration profile requires a 1.16.1 to 1.18.x source save. Use writer control for other supported text saves.');
+  if (!['roundtrip', 'experimental-1.16.1-to-1.19.0.6', 'experimental-random-regions-1.16.1-to-1.19.0.6', 'experimental-1.19.0.6-to-1.20.0.3'].includes(mode)) throw new Error('Unknown conversion profile.');
+  const target = targetVersion(mode);
+  if (mode !== 'roundtrip' && !supportedSourceVersion(saves.source.inspection.metadata.find(f => f.key === 'version')?.value, mode)) {
+    throw new Error(mode === 'experimental-1.19.0.6-to-1.20.0.3'
+      ? 'The 1.20 migration profile requires a 1.19.0.6 source save.'
+      : 'The experimental migration profile requires a 1.16.1 to 1.18.x source save. Use writer control for other supported text saves.');
   }
-  if (mode === 'experimental-random-regions-1.16.1-to-1.19.0.6' && (!sourcePaths.reference || saves.reference?.inspection.metadata.find(f => f.key === 'version')?.value !== '1.19.0.6')) {
-    throw new Error('Open a 1.19.0.6 reference save to initialize new regions.');
+  if (['experimental-random-regions-1.16.1-to-1.19.0.6', 'experimental-1.19.0.6-to-1.20.0.3'].includes(mode) && (!sourcePaths.reference || saves.reference?.inspection.metadata.find(f => f.key === 'version')?.value !== target)) {
+    throw new Error(`Open a ${target} reference save for this migration profile.`);
   }
   busy = true;
   let staging;
@@ -95,8 +98,8 @@ handle('save:convert', async (mode) => {
   try {
     const stem = path.basename(saves.source.name, '.ck3');
     const selected = await dialog.showSaveDialog(window, {
-      title: mode === 'roundtrip' ? 'Create writer-control save' : 'Create experimental CK3 1.19 test save',
-      defaultPath: stem + (mode === 'roundtrip' ? '_writer_control_v' + app.getVersion() + '.ck3' : '_1.19_test_v' + app.getVersion() + '.ck3'),
+      title: mode === 'roundtrip' ? 'Create writer-control save' : `Create experimental CK3 ${target} test save`,
+      defaultPath: stem + (mode === 'roundtrip' ? '_writer_control_v' + app.getVersion() + '.ck3' : `_${target}_test_v` + app.getVersion() + '.ck3'),
       filters: [{ name: 'Crusader Kings III test save', extensions: ['ck3'] }]
     });
     if (selected.canceled || !selected.filePath) return null;

@@ -1,4 +1,8 @@
-# Current default: random regional kingdoms (v0.3.1)
+# New profile: 1.19.0.6 → 1.20.0.3 (v0.4.2)
+
+See [the faith and rite migration](migration-1.20.md) for implementation and limits. Opening a 1.19.0.6 source selects this profile; add a fresh 1.20.0.3 reference with matching province IDs. v0.4.1 repairs domicile ownership and passes at least 33 days of simulation with a normal exit. v0.4.2 migrates legacy opinions, contracts, accolades and culture fields, with explicit fallback warnings. Fresh engine testing and individual removed-content mappings remain; see [the cleanup review](error-log-cleanup-1.20.md).
+
+# Older default: random regional kingdoms (v0.3.1)
 
 See [the new-region profile](random-regions.md) for the implementation, reproduction evidence, and test limits. Select an original 1.16.1 campaign and a 1.19.0.6 reference. The test-candidate script now uses this profile.
 

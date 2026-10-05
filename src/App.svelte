@@ -1,6 +1,7 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import type { InspectedSave, Slot, ConversionMode, ConversionSummary } from './types';
+  import { version as appVersion } from '../package.json';
 
   let tab: 'overview' | 'structure' | 'plan' = 'overview';
   let source: InspectedSave | null = null;
@@ -11,7 +12,10 @@
   let query = '';
   let conversionMode: ConversionMode = 'experimental-random-regions-1.16.1-to-1.19.0.6';
   let conversion: ConversionSummary | null = null;
-  $: canConvert = !!source && !busy && desktop && (conversionMode === 'roundtrip' || sourceSupported) && (conversionMode !== 'experimental-random-regions-1.16.1-to-1.19.0.6' || meta(reference, 'version') === '1.19.0.6');
+  $: upgradeProfile = conversionMode === 'experimental-1.19.0.6-to-1.20.0.3';
+  $: targetVersion = upgradeProfile ? '1.20.0.3' : '1.19.0.6';
+  $: referenceRequired = upgradeProfile || conversionMode === 'experimental-random-regions-1.16.1-to-1.19.0.6';
+  $: canConvert = !!source && !busy && desktop && (conversionMode === 'roundtrip' || sourceSupported) && (!referenceRequired || meta(reference, 'version') === targetVersion);
   async function convertSave() {
     if (!window.continuum || !canConvert) return;
     busy = 'convert'; error = ''; notice = ''; conversion = null;
@@ -33,7 +37,7 @@
   const meta = (save: InspectedSave | null, key: string) => save?.inspection.metadata.find(f => f.key === key)?.value || '—';
   $: version = meta(source, 'version');
   // Mirrors supported_source_version in native/src/conversion.rs: 1.16.1 through 1.18.x.
-  $: sourceSupported = /^1\.(16|17|18)(?:\.|$)/.test(version);
+  $: sourceSupported = upgradeProfile ? version === '1.19.0.6' : /^1\.(16|17|18)(?:\.|$)/.test(version);
   $: sourceSections = new Map(source?.inspection.sections.map(s => [s.key, s]) || []);
   $: referenceSections = new Map(reference?.inspection.sections.map(s => [s.key, s]) || []);
   $: sectionNames = [...new Set([...sourceSections.keys(), ...referenceSections.keys()])].sort();
@@ -50,7 +54,11 @@
         if (reply.cancelled) notice = 'Inspection cancelled. Your previous results are still available.';
         else error = reply.error;
       } else if (reply.value) {
-        if (slot === 'source') { source = reply.value; conversion = null; }
+        if (slot === 'source') {
+          source = reply.value; conversion = null;
+          if (meta(source, 'version') === '1.19.0.6' && conversionMode !== 'roundtrip') conversionMode = 'experimental-1.19.0.6-to-1.20.0.3';
+          else if (conversionMode === 'experimental-1.19.0.6-to-1.20.0.3') conversionMode = 'experimental-random-regions-1.16.1-to-1.19.0.6';
+        }
         else reference = reply.value;
         notice = `${reply.value.name} inspected. Original save unchanged.`;
       }
@@ -91,7 +99,7 @@
       <button class:active={tab === 'plan'} onclick={() => tab = 'plan'}><Icon name="route" />Migration plan</button>
     </nav>
     <div class="sidebar-note"><span class="tiny-label">BUILT FOR CONTINUATION</span><p>Every campaign has<br />more stories to tell.</p><div class="rule-decoration"><span></span>✦<span></span></div></div>
-    <div class="sidebar-footer"><span class="status-dot"></span>Local processing only<div>Prototype <span>v0.3.1</span></div></div>
+    <div class="sidebar-footer"><span class="status-dot"></span>Local processing only<div>Prototype <span>v{appVersion}</span></div></div>
   </aside>
 
   <div class="workspace">
@@ -125,7 +133,7 @@
             {#if reference}<div class="reference-loaded"><Icon name="check" size={17} /><div><strong>{reference.name}</strong><span>Version {meta(reference, 'version')} · {bytes(reference.inspection.fileBytes)}</span></div></div>{/if}
             <button class="button secondary full" data-testid="open-reference" disabled={!desktop || !!busy} onclick={() => openSave('reference')}><Icon name={reference ? 'folder' : 'plus'} size={16} />{reference ? 'Replace reference save' : 'Add reference save'}</button>
           </section>
-          <section class="card readiness-card"><div class="card-title"><div class="small-icon amber"><Icon name="route" /></div><div><h3>Migration readiness</h3><span>Research target · CK3 1.19.0.6</span></div></div><div class="readiness-status"><span class="amber-dot"></span>{source ? 'Compatibility needs investigation' : 'Begin with an inspection'}</div><p>{source ? 'A successful scan confirms readable data. Map changes, mod content, and in-game behavior still need validation.' : 'Inspect a campaign, then open the migration plan to create an experimental test save or a writer-control copy.'}</p><button class="text-button" onclick={() => tab = 'plan'}>View the migration plan<Icon name="arrow" size={16} /></button></section>
+          <section class="card readiness-card"><div class="card-title"><div class="small-icon amber"><Icon name="route" /></div><div><h3>Migration readiness</h3><span>Research target · CK3 {targetVersion}</span></div></div><div class="readiness-status"><span class="amber-dot"></span>{source ? 'Compatibility needs investigation' : 'Begin with an inspection'}</div><p>{source ? 'A successful scan confirms readable data. Map changes, mod content, and in-game behavior still need validation.' : 'Inspect a campaign, then open the migration plan to create an experimental test save or a writer-control copy.'}</p><button class="text-button" onclick={() => tab = 'plan'}>View the migration plan<Icon name="arrow" size={16} /></button></section>
         </div>
 
         <section class="card inspection-card"><div class="section-heading"><div><h3>Inspection summary</h3><p>{source ? 'Measured from your save, without rewriting it.' : 'Your campaign’s details will appear here.'}</p></div>{#if source}<span class="verified"><Icon name="check" size={14} />{integrity}</span>{:else}<span class="pill">AWAITING SAVE</span>{/if}</div>
@@ -142,17 +150,23 @@
       {:else}
         <div class="plan-intro"><Icon name="shield" size={28} /><div><h2>Preserve the campaign. Prove the result.</h2><p>The goal is a playable continuation, including the world, family, culture, and history. A version-label edit alone cannot establish that.</p></div></div>
         <section class="card milestones">{#each milestones as item, index}<div class="milestone"><div class:completed={index === 0} class="milestone-number">{#if index === 0}<Icon name="check" size={18} />{:else}0{index + 1}{/if}</div><div><div class="milestone-title"><h3>{item.name}</h3><span class:available={index === 0} class="pill">{item.state}</span></div><p>{item.body}</p></div></div>{/each}</section>
-        <div class="details-grid"><section class="card"><h3>Known research areas</h3><ul class="research-list"><li>Province and title identity across changed maps</li><li>Trait indices, faith and religion schema</li><li>Generated cultures and administrative systems</li><li>Source mods and missing content definitions</li></ul><p class="muted">These are findings from the 1.16.1 → 1.19.0.6 research pair, not automatically detected issues in your save.</p></section><section class="card conversion-card">
+        <div class="details-grid"><section class="card"><h3>Known research areas</h3><ul class="research-list"><li>Province and title identity across changed maps</li><li>Trait indices, faith and rite schema</li><li>Generated cultures and administrative systems</li><li>Source mods and missing content definitions</li></ul><p class="muted">The profiles reflect research on 1.16 → 1.19 and 1.19 → 1.20 saves. These areas still need in-game validation for each campaign.</p></section><section class="card conversion-card">
           <Icon name="route" size={25} /><h3>Create a test save</h3><span class="pill">EXPERIMENTAL · ENGINE UNVERIFIED</span>
           <p>Writes a separate .ck3 file and a conversion report. Your source stays untouched.</p>
           <label class="conversion-label" for="conversion-mode">Conversion profile</label>
           <select id="conversion-mode" bind:value={conversionMode} disabled={!!busy}>
+            <option value="experimental-1.19.0.6-to-1.20.0.3">1.19.0.6 → 1.20.0.3 · faith and rite migration</option>
             <option value="experimental-random-regions-1.16.1-to-1.19.0.6">1.16.1 – 1.18.x -> 1.19.0.6: random regional kingdoms</option>
             <option value="experimental-1.16.1-to-1.19.0.6">1.16.1 – 1.18.x → 1.19.0.6 · structural test</option>
             <option value="roundtrip">Writer control · no migration</option>
           </select>
           {#if conversionMode === 'roundtrip'}
             <p>Rebuilds the supported container with identical gamestate bytes. Use this to isolate writer behavior from migration behavior.</p>
+          {:else if upgradeProfile}
+            <p>Moves faiths into the new schema, creates a rite for each campaign faith, and updates character, county, and state affiliations. Preserves campaign IDs and history. Requires a 1.20.0.3 reference with the same province IDs.</p>
+            <p class="conversion-warning">Church politics and new managers need in-game testing. Old faiths remain independent, including faiths that 1.20 combines under one church.</p>
+            {#if source && !sourceSupported}<p class="conversion-warning">This profile requires a 1.19.0.6 source save.</p>{/if}
+            {#if meta(reference, 'version') !== '1.20.0.3'}<p class="conversion-warning">Open a 1.20.0.3 reference save from Overview.</p>{/if}
           {:else if conversionMode === 'experimental-random-regions-1.16.1-to-1.19.0.6'}
             <p>Registers missing regions and creates new families in independent feudal kingdoms with county vassals. Existing rulers, families, and cultures are preserved. Requires a 1.19.0.6 reference save for geography and regional defaults.</p>
             <p>Advanced eastern governments and changes to existing provinces still need migration. Test portraits and new realms in CK3 before continuing the campaign.</p>

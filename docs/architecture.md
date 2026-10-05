@@ -29,7 +29,9 @@ Reports omit absolute input paths but include filenames and campaign metadata. N
 
 A reference save is structural evidence. Counts vary with campaign age, mods, DLC, and world state. The UI does not infer universal conversion rules, detect a mod playset, or assign a compatibility score from those counts.
 
-The only configured research target is 1.19.0.6, based on the supplied research pair. It is not a claim that 1.19.0.6 is the latest released engine. No internet lookup runs in the app. Future profiles must identify exact engine/content definitions.
+Configured experimental profiles cover 1.16.1–1.18.x → 1.19.0.6 and 1.19.0.6 → 1.20.0.3, using exact target-version reference saves. The latter migrates the faith/rite schema while preserving campaign IDs; see [implementation and limits](migration-1.20.md). No internet lookup runs in the app. Future profiles must identify exact engine/content definitions.
+
+Migration research uses the user's sibling `ck3-mod-base` repository for versioned game definitions and historical comparisons. Its 1.20.0.3 metadata and nine sampled definition files were verified against the installed game; see [reference sources](ck3-1.20-reference.md). Persisted field layouts and runtime behavior are checked with reference saves and CK3 logs. The portable app remains self-contained; the external checkout is a research source.
 
 ## Experimental conversion (v0.2)
 

@@ -20,7 +20,7 @@ Limits: 2 GiB input cap; 512 MiB default expanded gamestate cap (standalone API 
 
 ## Experimental writer
 
-writeCandidate(input, newOutput, expectedGamestateSha256, mode) supports roundtrip and experimental-1.16.1-to-1.19.0.6. It creates a new staged file only. Use the Electron transaction to publish it with a journal. Direct native callers must clean their own staging file after a write/readback failure.
+`writeCandidate(input, newOutput, expectedGamestateSha256, mode, reference?)` supports writer control, the existing structural/regional 1.16–1.18 → 1.19.0.6 profiles, and `experimental-1.19.0.6-to-1.20.0.3`. Regional and 1.20 profiles require a reference from their exact target version. See [1.20 migration](../docs/migration-1.20.md). It creates a new staged file only. Use the Electron transaction to publish it with a journal. Direct native callers must clean their own staging file after a write/readback failure.
 
 Accepted: SAV kinds 00/02, UTF-8, identical outer/inner metadata, single gamestate ZIP entry, no archive comments or ZIP64. Other layouts are rejected. Writer limits: 512 MiB input/expanded data, 4 MiB metadata, one million immediate entries per index, 250,000 patches. Conversion retains full source/output buffers and can use several times the expanded size in peak memory.
 

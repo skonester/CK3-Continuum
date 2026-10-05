@@ -11,6 +11,6 @@ Use this file with **Add reference save** in CK3 Continuum. Your old campaign be
 
 This save was supplied by the project author as a new-game reference. Its original filename ended in `_1.9.ck3`; the repository copy is renamed to match its verified embedded version. Its contents are unchanged, and the native inspector verified its ZIP integrity.
 
-Use it for the current **1.16.1 to 1.19.0.6** regional conversion profile. It is not a reference for every future CK3 version or overhaul mod. Its exact enabled DLC/mod setup has not been independently established by the metadata check; create your own fresh target-version save when you need a specific setup. This file is provided in the repository separately from the portable executable.
+Use it for the **1.16.1–1.18.x to 1.19.0.6** regional conversion profile. The **1.19.0.6 to 1.20.0.3** profile requires a separate fresh 1.20.0.3 reference; see [migration details](../docs/migration-1.20.md). This file is not a reference for every future CK3 version or overhaul mod. Its exact enabled DLC/mod setup has not been independently established by the metadata check; create your own fresh target-version save when you need a specific setup. This file is provided in the repository separately from the portable executable.
 
 See the [step-by-step instructions](../README.md#use-your-old-save-with-a-reference). Other personal campaign saves remain excluded from Git.

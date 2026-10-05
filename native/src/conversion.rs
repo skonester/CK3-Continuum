@@ -14,6 +14,8 @@ use std::{
 const LIMIT: usize = 512 * 1024 * 1024;
 const PROFILE: &str = "experimental-1.16.1-to-1.19.0.6";
 const WORLD_PROFILE: &str = "experimental-random-regions-1.16.1-to-1.19.0.6";
+const UPGRADE_PROFILE: &str = "experimental-1.19.0.6-to-1.20.0.3";
+mod upgrade;
 #[path = "world.rs"]
 mod world;
 
@@ -535,10 +537,19 @@ fn convert(
     if original_game_hash != expected {
         return Err(fail("source changed since inspection; inspect it again"));
     }
-    let mut edits = plan(&game, if mode == WORLD_PROFILE { PROFILE } else { mode })?;
-    let reference_sha256 = if mode == WORLD_PROFILE {
-        let path = reference
-            .ok_or_else(|| fail("random-region conversion requires a 1.19.0.6 reference save"))?;
+    let mut edits = if mode == UPGRADE_PROFILE {
+        Vec::new()
+    } else {
+        plan(&game, if mode == WORLD_PROFILE { PROFILE } else { mode })?
+    };
+    let reference_sha256 = if mode == WORLD_PROFILE || mode == UPGRADE_PROFILE {
+        let path = reference.ok_or_else(|| {
+            fail(if mode == UPGRADE_PROFILE {
+                "1.20 migration requires a 1.20.0.3 reference save"
+            } else {
+                "random-region conversion requires a 1.19.0.6 reference save"
+            })
+        })?;
         let mut raw_reference = Vec::new();
         fs::File::open(path)
             .map_err(fail)?
@@ -550,8 +561,15 @@ fn convert(
         }
         let reference_hash = hash(&raw_reference);
         let (_, _, reference_game) = read_game(&raw_reference)?;
-        edits.extend(world::plan_world(&game, &reference_game)?);
+        edits.extend(if mode == UPGRADE_PROFILE {
+            upgrade::plan_upgrade(&game, &reference_game)?
+        } else {
+            world::plan_world(&game, &reference_game)?
+        });
         edits.sort_by_key(|p| p.start);
+        if edits.len() > 250_000 {
+            return Err(fail("too many migration changes"));
+        }
         Some(reference_hash)
     } else {
         None
