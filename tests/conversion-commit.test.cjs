@@ -3,6 +3,15 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { reportFor, commitCandidate, supportedSourceVersion, targetVersion } = require('../electron/conversion.cjs');
+test('conversion findings and migration notes remain scoped to their own report',()=>{
+  const profile='experimental-1.16.1-to-1.19.0.6';
+  const first=reportFor({profile,changes:[],contentMigration:{notes:['one campaign only']},compatibilityAfter:{errorCount:2}},'a.ck3','b.ck3');
+  const second=reportFor({profile,changes:[]},'c.ck3','d.ck3');
+  assert.ok(first.warnings.includes('one campaign only'));
+  assert.ok(first.warnings.some(w=>w.includes('2 pre-existing compatibility errors')));
+  assert.ok(!second.warnings.includes('one campaign only'));
+  assert.ok(!second.warnings.some(w=>w.includes('pre-existing compatibility errors')));
+});
 test('conversion commits save and report together without overwriting existing destinations',async()=>{
   const base=path.join(__dirname,'../test-output');await fs.mkdir(base,{recursive:true});
   const root=await fs.mkdtemp(path.join(base,'commit-'));

@@ -14,7 +14,7 @@ function buildReport(saves, version) {
     targetResearchProfile: '1.19.0.6',
     limitations: [
       'Section differences can reflect campaign history, DLC, or mods as well as version changes.',
-      'Mod dependencies are not detected by this prototype.',
+      'Listed mods are recognized, but installed mod content and DLC definitions are not exhaustively resolved.',
       'ZIP integrity and syntactic inspection do not establish engine compatibility.',
       'Outer and inner metadata are not compared by the current inspector.'
     ],

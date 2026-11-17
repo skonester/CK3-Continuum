@@ -25,3 +25,11 @@ Limits: 2 GiB input cap; 512 MiB default expanded gamestate cap (standalone API 
 Accepted: SAV kinds 00/02, UTF-8, identical outer/inner metadata, single gamestate ZIP entry, no archive comments or ZIP64. Other layouts are rejected. Writer limits: 512 MiB input/expanded data, 4 MiB metadata, one million immediate entries per index, 250,000 patches. Conversion retains full source/output buffers and can use several times the expanded size in peak memory.
 
 Jomini validates grammar and CRC; a separate byte-span traversal selects exact paths. Output is re-read through Jomini. Journals include rule, path, input span, replacement length, and before/after hashes. Untouched spans are verified. Full graph and engine validation remain outstanding.
+
+## Compatibility and portrait migration
+
+`lintSave(input, expectedGamestateSha256)` runs a read-only scoped audit and rejects stale inspection hashes. It returns error/warning counts, bounded examples, checked areas, and explicit skipped checks. The app exposes it through **Check campaign** in an isolated, cancellable utility process. Inspection report export retains the last campaign audit.
+
+Each conversion returns `compatibilityBefore` and `compatibilityAfter`; a newly introduced error identified by these checks stops conversion before output creation. Existing issues remain visible. `contentMigration` and `portraitMigration` describe automatic vanilla successor/DNA work and reasons it was deferred. Writer controls apply neither migration.
+
+The bundled tables contain only identifiers and indices from pinned game versions. Regenerate them with `python scripts/build-compatibility-data.py --definitions-repo <ck3-mod-base clone>`; the app has no runtime dependency on that repository, Python, or a game installation. New Rust unit tests run with `cargo test --manifest-path native/Cargo.toml --lib --locked`. See [scope, provenance, and limits](../docs/compatibility.md). Upstream adaptation notices are retained in `CK3-SAVE-UPDATER-LICENSE.txt`; base64's MIT notice is in `BASE64-LICENSE.txt`.

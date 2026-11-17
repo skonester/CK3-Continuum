@@ -58,6 +58,7 @@ try {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await expect(page.getByRole('heading', { name: 'Your legacy, continued.' })).toBeVisible();
+  await expect(page.locator('.sidebar-footer')).toContainText(`v${pkg.version}`);
   await expect(page.getByTestId('open-source')).toBeEnabled();
   await expect(page.getByTestId('open-reference')).toBeEnabled();
   expect(page.url()).toContain('app.asar');
@@ -71,7 +72,7 @@ try {
   expect(reply.error).toContain('Invalid save slot');
   expect(errors).toEqual([]);
   await writeFile(path.join(out, 'portable-verification.json'), JSON.stringify({
-    passed: true, artifact: artifactName, isolatedExecutable: true,
+    passed: true, version: pkg.version, artifact: artifactName, isolatedExecutable: true,
     rendererIsolation: true, mainProcessBridge: true, rendererErrors: errors
   }, null, 2));
   console.log('Portable smoke passed: single-file extraction, app startup, UI, renderer isolation, and main-process bridge.');

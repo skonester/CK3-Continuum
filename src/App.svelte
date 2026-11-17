@@ -2,16 +2,20 @@
   import Icon from './Icon.svelte';
   import type { InspectedSave, Slot, ConversionMode, ConversionSummary } from './types';
   import { version as appVersion } from '../package.json';
+  import type { CompatibilityReport } from '../native/index';
 
   let tab: 'overview' | 'structure' | 'plan' = 'overview';
   let source: InspectedSave | null = null;
   let reference: InspectedSave | null = null;
-  let busy: Slot | 'export' | 'convert' | null = null;
+  let busy: Slot | 'export' | 'convert' | 'lint' | null = null;
+  let compatibility: CompatibilityReport | null = null;
+  let compatibilityScope: 'source' | 'conversion' = 'source';
   let error = '';
   let notice = '';
   let query = '';
   let conversionMode: ConversionMode = 'experimental-random-regions-1.16.1-to-1.19.0.6';
   let conversion: ConversionSummary | null = null;
+  $: visibleCompatibility = compatibilityScope === 'conversion' && conversion?.compatibilityAfter ? conversion.compatibilityAfter : compatibility;
   $: upgradeProfile = conversionMode === 'experimental-1.19.0.6-to-1.20.0.3';
   $: targetVersion = upgradeProfile ? '1.20.0.3' : '1.19.0.6';
   $: referenceRequired = upgradeProfile || conversionMode === 'experimental-random-regions-1.16.1-to-1.19.0.6';
@@ -26,9 +30,26 @@
         else error = reply.error;
       } else if (reply.value) {
         conversion = reply.value;
+        compatibilityScope = 'conversion';
         notice = 'Test save created: ' + reply.value.outputName + '. Engine compatibility is still unverified.';
       }
     } catch { error = 'Conversion connection interrupted. Check the destination for any incomplete staging folder.'; }
+    finally { busy = null; }
+  }
+  async function checkCompatibility() {
+    if (!window.continuum || busy || !source) return;
+    busy = 'lint'; error = ''; notice = '';
+    try {
+      const reply = await window.continuum.checkCompatibility();
+      if (!reply.ok) {
+        if (reply.cancelled) notice = 'Compatibility check cancelled.';
+        else error = reply.error;
+      } else {
+        compatibility = reply.value;
+        compatibilityScope = 'source';
+        notice = 'Compatibility checks complete. Game testing is still required.';
+      }
+    } catch { error = 'The compatibility check was interrupted.'; }
     finally { busy = null; }
   }
   const desktop = Boolean(window.continuum);
@@ -55,7 +76,7 @@
         else error = reply.error;
       } else if (reply.value) {
         if (slot === 'source') {
-          source = reply.value; conversion = null;
+          source = reply.value; conversion = null; compatibility = null; compatibilityScope = 'source';
           if (meta(source, 'version') === '1.19.0.6' && conversionMode !== 'roundtrip') conversionMode = 'experimental-1.19.0.6-to-1.20.0.3';
           else if (conversionMode === 'experimental-1.19.0.6-to-1.20.0.3') conversionMode = 'experimental-random-regions-1.16.1-to-1.19.0.6';
         }
@@ -111,7 +132,7 @@
       {#if error}<div class="message error" role="alert"><Icon name="info" /><div><strong>Operation could not be completed</strong><p>{error}</p><small>Your original saves have not been modified.</small></div><button class="icon-button" aria-label="Dismiss error" onclick={() => error = ''}><Icon name="x" size={16} /></button></div>{/if}
       <div class="sr-only" role="status" aria-live="polite">{busy ? 'Working. Reading and verifying save data.' : notice}</div>
       {#if notice}<div class="notice"><Icon name="check" size={15} />{notice}</div>{/if}
-      {#if busy && busy !== 'export'}<div class="progress-card"><span class="spinner"></span><div><strong>{busy === 'convert' ? 'Creating and verifying your test save…' : 'Reading and verifying your ' + (busy === 'source' ? 'campaign' : 'reference') + '…'}</strong><span>Large saves can take longer. Your original remains unchanged.</span></div><button class="button subtle" onclick={cancel}>Cancel</button></div>{/if}
+      {#if busy && busy !== 'export'}<div class="progress-card"><span class="spinner"></span><div><strong>{busy === 'convert' ? 'Creating and verifying your test save…' : busy === 'lint' ? 'Checking campaign compatibility…' : 'Reading and verifying your ' + (busy === 'source' ? 'campaign' : 'reference') + '…'}</strong><span>Large saves can take longer. Your original remains unchanged.</span></div><button class="button subtle" onclick={cancel}>Cancel</button></div>{/if}
 
       {#if tab === 'overview'}
         <section class="campaign-panel" aria-label="Campaign save">
@@ -173,16 +194,28 @@
             {#if source && !sourceSupported}<p class="conversion-warning">This profile requires a 1.16.1 to 1.18.x source save.</p>{/if}
             {#if meta(reference, 'version') !== '1.19.0.6'}<p class="conversion-warning">Open a 1.19.0.6 reference save from Overview.</p>{/if}
           {:else}
-            <p>Renames religion/faith template fields, groups title display names, and updates the version label. Map, trait, portrait, mod, and system migration remain unresolved.</p>
+            <p>Renames religion/faith template fields, groups title display names, and updates the version label. Includes verified vanilla content mappings and, with a matching reference, portrait migration for known source layouts. Map, trait, mod, and system work remains.</p>
             {#if source && !sourceSupported}<p class="conversion-warning">This profile requires a 1.16.1 to 1.18.x source save.</p>{/if}
           {/if}
           <button class="button primary full" data-testid="convert-save" disabled={!canConvert} onclick={convertSave}><Icon name="arrow" size={16} />{conversionMode === 'roundtrip' ? 'Create writer-control save' : 'Convert save'}</button>
           {#if !source}<p>Open a campaign from Overview to begin.</p>{/if}
         </section></div>
       {/if}
+      <section class="card compatibility-card" aria-label="Compatibility checks">
+        <div class="compatibility-heading"><div><h3>Compatibility checks</h3><p>Check IDs, religious affiliations, title hierarchies, contracts, family links, and known vanilla content. Results describe saved data; CK3 testing is still required.</p></div><button class="button secondary" data-testid="check-compatibility" disabled={!source || !desktop || !!busy} onclick={checkCompatibility}>Check campaign</button></div>
+        {#if visibleCompatibility}
+          <p data-testid="compatibility-counts">{compatibilityScope === 'conversion' && conversion?.compatibilityAfter ? 'Converted save' : 'Campaign'}: {number(visibleCompatibility.errorCount)} errors · {number(visibleCompatibility.warningCount)} warnings</p>
+          {#each visibleCompatibility.findings as finding}
+            <details class:compatibility-error={finding.severity === 'error'}><summary>{finding.severity === 'error' ? 'Error' : 'Warning'} · {number(finding.count)} · {finding.message}</summary><ul>{#each finding.examples as example}<li>{example}</li>{/each}</ul></details>
+          {/each}
+          <details><summary>Checked and skipped areas</summary><ul>{#each visibleCompatibility.checked as item}<li>Checked: {item}</li>{/each}{#each visibleCompatibility.skipped as item}<li>Skipped: {item}</li>{/each}</ul></details>
+        {:else}<p class="muted">Run a check after opening a campaign. Conversion also checks the source and output and records both in its report.</p>{/if}
+      </section>
       {#if conversion}<section class="card conversion-result" aria-label="Conversion result">
         <span class="verified"><Icon name="check" size={14} />Output structure verified · engine untested</span>
         <h3>{conversion.outputName}</h3><p>Report: {conversion.reportName} · {bytes(conversion.outputBytes)}</p>
+        {#if conversion.contentMigration}<p>Removed content: {conversion.contentMigration.status} · {number(conversion.contentMigration.mapped)} mapped references · {number(conversion.contentMigration.duplicatesRemoved)} duplicate references removed.</p>{/if}
+        {#if conversion.portraitMigration}<p>Portraits: {conversion.portraitMigration.status} · {number(conversion.portraitMigration.examined)} DNA records examined · {number(conversion.portraitMigration.changed)} rewritten. See the report for preservation and fallback details.</p>{/if}
         <ul>{#each Object.entries(conversion.counts) as [rule, count]}<li>{rule}: {number(count)} changed spans</li>{/each}</ul>
         <p>{conversion.profile === 'roundtrip' ? 'Gamestate bytes are unchanged.' : 'Unchanged byte ranges were verified; engine behavior still needs testing.'}</p>
         <details><summary>Unresolved work and in-game test steps</summary><ul>{#each conversion.warnings as warning}<li>{warning}</li>{/each}</ul>

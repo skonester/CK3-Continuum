@@ -2,6 +2,7 @@
 name = "ck3-save-native"
 version = "0.1.0"
 edition = "2024"
+license = "GPL-3.0-or-later"
 publish = false
 
 [lib]
@@ -14,6 +15,7 @@ napi-derive = "3"
 sha2 = "0.10"
 flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
 crc32fast = "1.4"
+base64 = "0.22"
 
 [build-dependencies]
 napi-build = "2"

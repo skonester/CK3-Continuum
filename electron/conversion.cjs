@@ -6,7 +6,7 @@ const WARNINGS = [
   'Experimental structural conversion only; CK3 load, simulation, and save/reload compatibility have not been established.',
   'World/map reconciliation is not implemented. Missing or changed provinces and title definitions remain unresolved.',
   'Source trait lookup and indices are preserved. The poet/lifestyle_poet change and experience mapping are not resolved.',
-  'Portrait versions and DNA are preserved; portrait migration is not implemented.',
+  'Portrait migration outcomes and any deferred layouts are recorded separately.',
   'Mod dependencies, generated-world initialization, administrative/economic changes, and new managers are not reconciled.',
   'The target version label identifies this test candidate; it is not a compatibility certificate.'
 ];
@@ -24,7 +24,7 @@ function targetVersion(mode) {
 function reportFor(result, sourceName, outputName) {
   const counts = {};
   for (const change of result.changes) counts[change.rule] = (counts[change.rule] || 0) + 1;
-  return {
+  const report = {
     reportVersion: 1, writerVersion, kind: 'conversion-test-candidate', createdAt: new Date().toISOString(),
     sourceName, outputName, engineTested: false, compatibility: 'unverified',
     warnings: result.profile === 'roundtrip'
@@ -34,7 +34,7 @@ function reportFor(result, sourceName, outputName) {
         'Campaign faith IDs remain stable. Each old faith has its own rite and religious organization; old faiths that became rites in 1.20 remain independent custom faiths instead of being merged.',
         'Explicit character, county, state, and holy-order affiliations use the new rite schema. Secret religion retains secret_faith and its campaign faith ID. Missing source affiliations remain absent; no religion is guessed.',
         'New clerical regions, leases, saints, house relations, great projects, and situation sub-managers begin empty. Bishops, church politics, and active situations need in-game validation.',
-        'Scholar/poet lookup names are migrated while indices and XP arrays are preserved. New poet XP is not initialized. Portrait versions and DNA are preserved.',
+        'Scholar/poet lookup names are migrated while indices and XP arrays are preserved. New poet XP is not initialized. Portrait migration outcomes are recorded separately.',
         'Province IDs must match the reference. Existing map data, campaign histories, mods, and advanced systems are preserved, but changed definitions and engine behavior remain unverified.',
         ...(counts['domicile-owner-title'] ? [`${counts['domicile-owner-title']} missing camp/estate owners were restored from campaign title links; buildings, provisions, and locations were preserved.`] : []),
         ...(counts['orphan-domicile-tombstone'] ? [`${counts['orphan-domicile-tombstone']} unowned camps/estates had no campaign title link and were replaced with database tombstones; their unused buildings and resources were removed. See orphan-domicile-tombstone journal entries.`] : []),
@@ -46,16 +46,19 @@ function reportFor(result, sourceName, outputName) {
         ...(counts['accolade-owned-list-with-inactive'] ? ['Inactive accolade IDs and any existing acclaimed-knight assignments are retained in their owner lists. The modern system removed deactivation; previously inactive knights may reactivate and vacant records may become eligible for automatic succession. No new knight assignment is created by the converter.'] : []),
         ...(counts['culture-spread-schema'] ? ['Culture exposure becomes spread; research progress, fascination and the source culture are preserved. Spread now follows the target acceptance rules. Scholar perks and bombard innovations use their current definition names.'] : []),
         ...(counts['obsolete-queued-on-action'] ? [`${counts['obsolete-queued-on-action']} queued instances of confirmed removed on-actions were dropped; other scheduled events are preserved.`] : []),
-        'Other removed or source-mod definitions (including modifiers, regiment types, story cycles and title templates) may still produce errors. They are retained for separate content migration; a fresh CK3 error log is required.'
+        'Content outside the verified successor table (including source-mod definitions, story cycles and title templates) may still produce errors. A fresh CK3 error log is required.'
       ] : result.profile === 'experimental-random-regions-1.16.1-to-1.19.0.6' ? [
         'Fresh families rule independent feudal regional kingdoms with county vassals; no reference character histories or political owners were imported.',
         'Missing static titles are registered, including China and Japanese/Korean throne titles used by portrait triggers. Portrait correction still needs visual confirmation in CK3.',
-        'Original character records, DNA, cultures, counties, and provinces are preserved; the culture-template lookup is rebuilt for the target definitions.',
+        'Original characters, cultures, counties, and provinces retain their campaign identities; the culture-template lookup is rebuilt for the target definitions. Eligible vanilla portrait DNA is migrated separately, with outcomes below.',
         'New regions use the reference save baseline for development, buildings, and cultural innovations. Special eastern governments, estates, and imperial situations are not initialized.',
         'Changed existing geography, source mods, traits/XP, and advanced systems remain unresolved. Load, advance, save, and reload testing is required.'
       ] : WARNINGS,
     counts, ...result
   };
+  report.warnings = [...report.warnings, ...(result.contentMigration?.notes || []), ...(result.portraitMigration?.notes || [])];
+  if (result.compatibilityAfter?.errorCount) report.warnings.push(`${result.compatibilityAfter.errorCount} pre-existing compatibility errors remain. Review compatibilityAfter in this report before testing the save.`);
+  return report;
 }
 async function commitCandidate(stagedSave, destination, report) {
   if (path.extname(destination).toLowerCase() !== '.ck3') throw new Error('Choose a .ck3 output filename.');
@@ -81,6 +84,7 @@ async function commitCandidate(stagedSave, destination, report) {
   }
   return { outputName: path.basename(destination), reportName: path.basename(reportPath),
     profile: report.profile, counts: report.counts, outputBytes: report.outputBytes,
-    outputSha256: report.outputSha256, warnings: report.warnings, engineTested: false };
+    outputSha256: report.outputSha256, warnings: report.warnings, engineTested: false,
+    compatibilityAfter: report.compatibilityAfter, contentMigration: report.contentMigration, portraitMigration: report.portraitMigration };
 }
 module.exports = { reportFor, commitCandidate, supportedSourceVersion, targetVersion, WARNINGS };

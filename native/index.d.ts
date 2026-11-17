@@ -22,6 +22,12 @@ export interface SaveInspection {
 }
 /** Read-only, asynchronous Rust streaming inspection. Not a conversion or an engine compatibility test. */
 export function inspectSave(filePath: string, maxBytes?: number): Promise<SaveInspection>;
+export interface CompatibilityFinding { code: string; severity: 'error' | 'warning'; message: string; count: number; examples: string[] }
+export interface CompatibilityReport { gamestateSha256: string; errorCount: number; warningCount: number; findings: CompatibilityFinding[]; checked: string[]; skipped: string[]; engineTested: boolean }
+export interface ContentMigration { status: string; mapped: number; duplicatesRemoved: number; notes: string[] }
+export interface PortraitMigration { status: string; examined: number; changed: number; preserved: number; sourceVersion: string; targetVersion: string; notes: string[] }
+/** Read-only scoped compatibility audit; a clean result is not an engine compatibility certificate. */
+export function lintSave(filePath: string, expected: string): Promise<CompatibilityReport>;
 
 export interface ConversionChange { rule: string; path: string; start: number; end: number; replacementBytes: number; beforeSha256: string; afterSha256: string }
 export interface ConversionResult {
@@ -29,6 +35,8 @@ export interface ConversionResult {
   sourceGamestateSha256: string; outputGamestateSha256: string;
   outputBytes: number; unchangedSpansVerified: boolean; outputVerified: boolean;
   elapsedMs: number; changes: ConversionChange[]; referenceSha256?: string;
+  compatibilityBefore: CompatibilityReport; compatibilityAfter: CompatibilityReport;
+  contentMigration?: ContentMigration; portraitMigration?: PortraitMigration;
 }
 /** Creates a new staged file, never replaces an existing path. Experimental; not engine-validated. */
 export function writeCandidate(input: string, output: string, expected: string, mode: 'roundtrip' | 'experimental-1.16.1-to-1.19.0.6' | 'experimental-random-regions-1.16.1-to-1.19.0.6' | 'experimental-1.19.0.6-to-1.20.0.3', reference?: string): Promise<ConversionResult>;

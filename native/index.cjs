@@ -17,6 +17,14 @@ exports.inspectSave = function inspectSave(filePath, maxBytes = 512 * 1024 * 102
   return job;
 };
 
+exports.lintSave = function lintSave(filePath, expected) {
+  if (typeof filePath !== 'string' || !filePath || filePath.includes('\0')) return Promise.reject(new TypeError('Expected a nonempty path without NUL bytes.'));
+  if (typeof expected !== 'string' || !/^[a-f0-9]{64}$/.test(expected)) return Promise.reject(new TypeError('Expected the inspected gamestate SHA-256.'));
+  const job = queue.then(() => binding.lintSave(filePath, expected));
+  queue = job.catch(() => {});
+  return job;
+};
+
 exports.writeCandidate = function writeCandidate(input, output, expected, mode, reference) {
   for (const value of [input, output]) {
     if (typeof value !== 'string' || !value || value.includes('\0')) return Promise.reject(new TypeError('Expected a nonempty path without NUL bytes.'));

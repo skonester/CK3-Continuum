@@ -1,5 +1,28 @@
 # Validation
 
+## v0.3.4 local Windows build (2026-11-17)
+
+The local portable executable is `release-0.3.4/CK3-Continuum-0.3.4-win-x64.exe`. App metadata, both root lockfile versions, the visible sidebar, and Windows executable version resources identify **0.3.4**.
+
+- `npm test`: **44 passed**.
+- `npm run package`: native build and Svelte/TypeScript/production build passed; portable Windows x64 executable created. The two existing upstream Jomini warnings remain.
+- Packaged desktop smoke passed using the synthetic 1.19.0.6/1.20.0.3 pair, covering compatibility checks, conversion, report publication, cancellation, input-hash preservation, and the displayed app version.
+- `npm run test:portable`: passed after copying only the portable executable into an isolated directory, including extraction, startup, displayed **v0.3.4**, renderer isolation, and the main-process bridge.
+
+This verifies the local application build. CK3 gameplay and save/reload validation of converted campaigns remain pending.
+
+## Compatibility/content/portrait source changes (2026-11-17)
+
+- **44 Node tests pass**, including namespace/slot collisions, cross-section duplicates, title cycles, affiliation and family links, stale lint inputs, scoped regiment/hired-regiment/artifact/title-modifier mappings, duplicate successor removal, mod deferrals, actual versioned complexion/teeth remapping, invalid/uncertain portrait layouts, new-error refusal before publication, report isolation, journal hashes, and unchanged input bytes.
+- **Two Rust unit tests pass**, covering reordered genes/templates, preservation of both allele values and color bytes, new-gene defaults, and all bundled versioned layouts. Native build, formatting, and clippy pass; the two existing vendored Jomini warnings remain. Svelte/TypeScript and production Vite build pass with zero errors/warnings.
+- Development desktop smoke passes with compatibility IPC/UI, source/output audit switching, conversion/report publication, cancellation, collision protection, renderer isolation, and original input hashes. The **packaged Windows app** passes the same workflow using a synthetic **1.19.0.6 → 1.20.0.3** pair, including an actual removed-unit mapping and DNA examination. No renderer errors were reported. Screenshots were inspected; generated artifacts remain under ignored `test-output/` and release folders.
+- Packaged GPL, upstream updater, and base64 notices, wrapper, and native binary were checked against the source build. The application still requires no Python or game installation at runtime.
+- The supplied fresh 1.19.0.6 reference (69,798,451 expanded bytes) returns **zero errors and zero warnings** under the implemented checks, in about **1.2 seconds** locally. This is a calibration check, not proof of complete schema or gameplay compatibility. In particular, legacy living characters can legitimately have implicit faith, and dead characters can omit it.
+- Regenerating compatibility tables from pinned historical game-definition commits reproduced the table hashes and checked each snapshot's version metadata. The moving 1.20.1.2 checkout was not used as the 1.20.0.3 target.
+- An isolated counterfactual build retained the public APIs while disabling the new compatibility findings and discarding content/portrait edits. **Six relevant integration tests failed and four conservative/no-op guards still passed.** The active implementation and native binding were not replaced by that build. Verification logs remain in ignored `test-output/counterfactual-xq1ipavq/`.
+
+**No CK3 load, simulation, portrait visual check, or save/exit/reload validation was performed for these changes.** New vanilla content/portrait migration is deferred for listed mods, unknown exact layouts, malformed DNA, and previously relabeled 1.19 saves with an older portrait schema. See [the implementation scope and policies](compatibility.md). Historical engine results below do not validate this new behavior.
+
 The executable checks for this prototype are:
 
 - `npm run build`: Svelte/TypeScript diagnostics and production bundling.

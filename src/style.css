@@ -11,3 +11,12 @@
 .conversion-result ul{color:#b5c5ad;font-size:12px;line-height:1.8}
 .conversion-result summary{cursor:pointer;color:#d2bf85;margin-top:15px}
 .conversion-result details p{font-size:12px}
+.compatibility-card{margin-top:22px}
+.compatibility-heading{display:flex;align-items:center;gap:24px;justify-content:space-between}
+.compatibility-heading>div{max-width:780px}
+.compatibility-heading .button{flex-shrink:0}
+.compatibility-card details{font-size:12px;line-height:1.7;margin-top:12px;color:#b5c5ad}
+.compatibility-card summary{cursor:pointer;color:#d2bf85}
+.compatibility-card .compatibility-error summary{color:#e3a099}
+.compatibility-card li{overflow-wrap:anywhere}
+@media(max-width:1000px){.compatibility-heading{align-items:flex-start;flex-direction:column;gap:8px}}

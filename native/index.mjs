@@ -1,2 +1,2 @@
 import native from './index.cjs';
-export const { inspectSave, writeCandidate } = native;
+export const { inspectSave, lintSave, writeCandidate } = native;

@@ -55,6 +55,12 @@ try {
   await page.getByTestId('open-source').click();
   await expect(page.getByTestId('source-version')).toHaveText(sourceVersion, { timeout: 30_000 });
   await expect(page.getByRole('button', { name: 'Export report' })).toBeEnabled();
+  await page.getByTestId('check-compatibility').click();
+  await expect(page.getByTestId('compatibility-counts')).toContainText('Campaign:', { timeout: 30_000 });
+  const lintBridge = await page.evaluate(() => window.continuum.checkCompatibility());
+  expect(lintBridge.ok).toBe(true);
+  expect(lintBridge.value.engineTested).toBe(false);
+  expect(lintBridge.value.gamestateSha256).toBe((await inspectSave(source)).gamestateSha256);
   await page.getByRole('button', { name: 'Migration plan', exact: true }).click();
   await expect(page.getByTestId('convert-save')).toBeDisabled();
   if (upgrade) {
@@ -131,6 +137,15 @@ try {
   expect(conversionReport.unchangedSpansVerified).toBe(true);
   expect(conversionReport.profile).toBe(mode);
   expect(conversionReport.counts['version-label']).toBe(1);
+  expect(conversionReport.compatibilityBefore.engineTested).toBe(false);
+  expect(conversionReport.compatibilityAfter.engineTested).toBe(false);
+  expect(conversionReport.contentMigration.status).toMatch(/checked|skipped/);
+  expect(conversionReport.portraitMigration.status).toMatch(/checked|skipped/);
+  await expect(page.getByTestId('compatibility-counts')).toContainText('Converted save:');
+  if (!process.env.CONTINUUM_EXE) await page.screenshot({ path: path.join(out, '04a-completed-conversion.png'), fullPage: true });
+  await page.getByTestId('check-compatibility').click();
+  await expect(page.getByTestId('compatibility-counts')).toContainText('Campaign:');
+  await expect(page.getByRole('region', { name: 'Conversion result' })).toBeVisible();
   if (upgrade) expect(conversionReport.counts['faith-to-rite']).toBeGreaterThan(0);
   await page.getByTestId('convert-save').click();
   await expect(page.getByRole('alert')).toContainText('already exists');

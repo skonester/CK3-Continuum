@@ -11,6 +11,10 @@ The desktop inspector, regional converter, and v0.4.2 migration for **1.19.0.6 â
 | Mods and system preservation | Research | Explicit source dependencies, generated cultures, administrative state, portraits, history |
 | Engine validation | Partial: load, corrected titles/poses, 85-day simulation and save passed | Load, simulate, succession, travel, save/reload, and extended stability tests |
 
+## Current source additions
+
+Scoped compatibility lint, curated vanilla content mappings, and exact-version vanilla portrait migration are implemented; see [scope and limits](compatibility.md). They retain the existing writer, journal, and input protection. Matching mod definitions and historical portrait-mod layouts remain deferred; engine load/simulation/save/reload validation is still required.
+
 ## Research constraints
 
 The original research pair has a modded 1.16.1 campaign and an unmodded 1.19.0.6 reference. Different campaigns do not define a complete schema diff. Findings include additional province/title definitions, 89 old static title keys absent from target definitions, shifted trait indices, religion/faith field changes, and changed portrait/system data. These findings are research context, not runtime diagnostics applied to every save.

@@ -2,6 +2,8 @@
 
 A local desktop tool for inspecting Crusader Kings III saves and experimenting with moving an existing campaign to a newer game version.
 
+The current local test build is **CK3 Continuum v0.3.4**, including compatibility lint, verified vanilla removed-content mappings, and exact-version vanilla portrait migration. See [scope and limits](docs/compatibility.md).
+
 ## Quick links
 
 - [Download releases](https://github.com/skonester/CK3-Continuum/releases)
@@ -71,7 +73,7 @@ The broader aim is to work with newer CK3 versions and campaigns using the **bas
 ## Compatibility and current limits
 
 - **Current migration profiles:** regional and structural profiles cover **1.16.1–1.18.x → 1.19.0.6**. The new faith/rite profile covers **1.19.0.6 → 1.20.0.3** and requires a matching 1.20.0.3 reference.
-- **1.20 limits:** old faiths retain their independence, including those the target game merges into rites. New church politics and other managers start empty. Missing affiliations, mod definitions, portrait migration, and new poet XP remain unresolved. See [details](docs/migration-1.20.md).
+- **1.20 limits:** old faiths retain their independence, including those the target game merges into rites. New church politics and other managers start empty. Missing affiliations, mod definitions, modded or uncertain portrait layouts, and new poet XP remain unresolved. See [details](docs/migration-1.20.md).
 - **Base game and official DLC:** these are the intended scope for broader compatibility. Newer versions and different DLC combinations may need additional migration rules and testing; a donor save alone does not establish support.
 - **Inspection versus conversion:** being able to open and inspect a save does not establish that its converted campaign will run correctly in CK3.
 - **Tested so far:** v0.3.1 has a confirmed 85-day simulation and saved checkpoint for the research campaign. Exit/reload, succession, and longer simulation remain untested. The original research source was modded, so this is not a compatibility test for every base-game, DLC, or mod combination.
@@ -90,6 +92,8 @@ Version 0.4.2 migrates legacy opinion decay, contracts, accolades, culture sprea
 - Export a JSON inspection report to a new filename.
 - Cancel an inspection by terminating its isolated utility process.
 - Create an experimental conversion or writer-control save with a change journal.
+- Run **Check campaign** for scoped compatibility findings, including ID/slot collisions, broken affiliations, title-liege cycles, contract parties, family links, and known vanilla content/DNA problems.
+- Apply verified vanilla removed-content mappings and exact-version portrait migration during conversion; review skipped areas and both compatibility audits in the conversion report. See [compatibility and portrait details](docs/compatibility.md).
 - Review the migration roadmap and current limitations.
 
 Everything runs locally. The app has no uploads, analytics, accounts, or automatic updates. Exported reports contain save filenames and campaign metadata; review them before sharing. Absolute input paths are not included in reports.
@@ -123,15 +127,15 @@ The reviewed Jomini source is vendored in `vendor/jomini`; no sibling Desktop fo
 npm run package
 ```
 
-This produces the self-contained `release-0.4.2/CK3-Continuum-0.4.2-win-x64.exe` (version and output directory are configured in `package.json`). Distribute that single portable executable; end users need neither Node nor Rust nor a separate resource folder.
+This produces the self-contained `release-0.3.4/CK3-Continuum-0.3.4-win-x64.exe` (version and output directory are configured in `package.json`). End users need only the portable executable, without Node, Rust, or a separate resource folder. When distributing a build, also provide its matching source and build instructions under the GPL; the release workflow publishes a project source archive alongside the executable.
 
 For a development build with loose files, use `npm run package:dir`. The native addon is shipped outside ASAR through Electron Builder's `extraResources`. Linux, macOS, ARM, code signing, installers, and automatic updates are not configured or tested.
 
 ### Automatic GitHub Releases
 
-Successful pushes to `main` and manual workflow runs on `main` build, test, and publish the portable `.exe` to [GitHub Releases](https://github.com/skonester/CK3-Continuum/releases). Pull requests build and test without publishing.
+Successful pushes to `main` and manual workflow runs on `main` build, test, and publish the portable `.exe` and a `CK3-Continuum-<version>-source.zip` archive to [GitHub Releases](https://github.com/skonester/CK3-Continuum/releases). The source archive contains the exact build commit, including build scripts, lockfiles, and vendored Jomini source. Pull requests build and test without publishing.
 
-The release tag follows `package.json`, for example `v0.3.1`. Rebuilding the same version updates its executable asset and release notes; increase the package version for a new release. Existing version tags stay on their original commits, and the release notes identify the commit used for the latest build. The workflow uses the built-in GitHub token with release write access limited to the publishing job.
+The release tag follows `package.json`, for example `v0.3.1`. Rebuilding the same version updates its executable, matching source archive, and release notes; increase the package version for a new release. Existing version tags stay on their original commits, so use the explicit source asset for the current executable. The release notes identify the commit used for the latest build. The workflow uses the built-in GitHub token with release write access limited to the publishing job.
 
 ## Verify
 
@@ -174,8 +178,10 @@ See [architecture](docs/architecture.md), [migration roadmap](docs/roadmap.md), 
 
 ## Contributing and project information
 
-This folder is the repository root. It includes a lockfile, Rust lockfile, CI, MIT license, and third-party notices. Private saves, reports, generated native binaries, build output, dependency directories, and local profiles are ignored. The supplied reference save in `reference-saves/` is explicitly included. CI uses synthetic fixtures and requires no private campaign files.
+This folder is the repository root. It includes a lockfile, Rust lockfile, CI, GPL license, and third-party notices. Private saves, reports, generated native binaries, build output, dependency directories, and local profiles are ignored. The supplied reference save in `reference-saves/` is explicitly included. CI uses synthetic fixtures and requires no private campaign files.
 
 Use [GitHub Issues](https://github.com/skonester/CK3-Continuum/issues) for bug reports and feature requests. Include the app version, source and target CK3 versions, DLC/mod setup, and steps to reproduce the issue. Do not commit proprietary game definitions or private saves.
 
-This is an unofficial community project, unaffiliated with Paradox Interactive. CK3 and its game assets belong to their respective owners. Project code is MIT-licensed; dependency licenses remain separate. See [third-party notices](THIRD_PARTY_NOTICES.md).
+CK3 Continuum is copyright (c) 2026 CK3 Continuum contributors. Project code is licensed under the GNU General Public License, version 3 or (at your option) any later version (`GPL-3.0-or-later`). You may redistribute and modify it under those terms. It comes without any warranty, including the implied warranties of merchantability or fitness for a particular purpose. See [LICENSE](LICENSE) for the full terms. Earlier MIT-licensed releases retain their original terms.
+
+This is an unofficial community project, unaffiliated with Paradox Interactive. CK3 and its game assets belong to their respective owners. Dependencies and supplied game assets retain their own licenses and rights; see [third-party notices](THIRD_PARTY_NOTICES.md).

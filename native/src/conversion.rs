@@ -15,6 +15,9 @@ const LIMIT: usize = 512 * 1024 * 1024;
 const PROFILE: &str = "experimental-1.16.1-to-1.19.0.6";
 const WORLD_PROFILE: &str = "experimental-random-regions-1.16.1-to-1.19.0.6";
 const UPGRADE_PROFILE: &str = "experimental-1.19.0.6-to-1.20.0.3";
+mod compatibility;
+mod content;
+mod portraits;
 mod upgrade;
 #[path = "world.rs"]
 mod world;
@@ -513,6 +516,10 @@ pub struct ConversionResult {
     pub elapsed_ms: f64,
     pub changes: Vec<ConversionChange>,
     pub reference_sha256: Option<String>,
+    pub compatibility_before: compatibility::CompatibilityReport,
+    pub compatibility_after: compatibility::CompatibilityReport,
+    pub content_migration: Option<content::ContentMigration>,
+    pub portrait_migration: Option<portraits::PortraitMigration>,
 }
 fn convert(
     input: &str,
@@ -537,12 +544,16 @@ fn convert(
     if original_game_hash != expected {
         return Err(fail("source changed since inspection; inspect it again"));
     }
+    let before_audit = compatibility::audit(&game)?;
     let mut edits = if mode == UPGRADE_PROFILE {
         Vec::new()
     } else {
         plan(&game, if mode == WORLD_PROFILE { PROFILE } else { mode })?
     };
-    let reference_sha256 = if mode == WORLD_PROFILE || mode == UPGRADE_PROFILE {
+    let (reference_sha256, reference_game) = if mode == WORLD_PROFILE
+        || mode == UPGRADE_PROFILE
+        || (mode != "roundtrip" && reference.is_some())
+    {
         let path = reference.ok_or_else(|| {
             fail(if mode == UPGRADE_PROFILE {
                 "1.20 migration requires a 1.20.0.3 reference save"
@@ -563,18 +574,67 @@ fn convert(
         let (_, _, reference_game) = read_game(&raw_reference)?;
         edits.extend(if mode == UPGRADE_PROFILE {
             upgrade::plan_upgrade(&game, &reference_game)?
-        } else {
+        } else if mode == WORLD_PROFILE {
             world::plan_world(&game, &reference_game)?
+        } else {
+            let roots = entries(&reference_game, 0, reference_game.len())?;
+            if compatibility::version(&reference_game, &roots)? != "1.19.0.6" {
+                return Err(fail(
+                    "structural-profile portrait reference must be 1.19.0.6",
+                ));
+            }
+            Vec::new()
         });
         edits.sort_by_key(|p| p.start);
         if edits.len() > 250_000 {
             return Err(fail("too many migration changes"));
         }
-        Some(reference_hash)
+        (Some(reference_hash), Some(reference_game))
     } else {
-        None
+        (None, None)
     };
+    let (content_migration, portrait_migration) = if mode == "roundtrip" {
+        (None, None)
+    } else {
+        let target = if mode == UPGRADE_PROFILE {
+            "1.20.0.3"
+        } else {
+            "1.19.0.6"
+        };
+        (
+            Some(content::plan(
+                &game,
+                target,
+                reference_game.as_deref(),
+                &mut edits,
+            )?),
+            Some(portraits::plan(
+                &game,
+                target,
+                reference_game.as_deref(),
+                &mut edits,
+            )?),
+        )
+    };
+    edits.sort_by_key(|p| p.start);
+    if edits.len() > 250_000 {
+        return Err(fail("too many migration changes"));
+    }
     let next_game = apply(&game, &edits)?;
+    let after_audit = compatibility::audit(&next_game)?;
+    for ((code, path), count) in &after_audit.errors {
+        if *count
+            > before_audit
+                .errors
+                .get(&(code.clone(), path.clone()))
+                .copied()
+                .unwrap_or(0)
+        {
+            return Err(fail(format!(
+                "conversion introduced a compatibility error ({code}): {path}"
+            )));
+        }
+    }
     let metadata_edits: Vec<_> = edits
         .iter()
         .filter(|p| p.start < outer.len())
@@ -660,6 +720,10 @@ fn convert(
             })
             .collect(),
         reference_sha256,
+        compatibility_before: before_audit.report,
+        compatibility_after: after_audit.report,
+        content_migration,
+        portrait_migration,
     })
 }
 pub struct ConvertTask {

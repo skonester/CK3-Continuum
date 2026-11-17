@@ -79,6 +79,16 @@ handle('save:open', async (slot) => {
   } finally { busy = false; }
 });
 handle('save:cancel', () => { if (!job) return false; job.cancel(); return true; });
+handle('save:lint', async () => {
+  if (busy) throw new Error('Wait for the current operation to finish.');
+  if (!saves.source || !sourcePaths.source) throw new Error('Inspect a campaign first.');
+  busy = true;
+  try {
+    const report = await runNative({ operation: 'lint', filePath: sourcePaths.source, expected: saves.source.inspection.gamestateSha256 });
+    saves.source.compatibility = report;
+    return report;
+  } finally { busy = false; }
+});
 handle('save:convert', async (mode) => {
   if (busy) throw new Error('Wait for the current operation to finish.');
   if (!saves.source || !sourcePaths.source) throw new Error('Inspect a campaign first.');

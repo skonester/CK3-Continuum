@@ -1,5 +1,7 @@
-//! Read-only Node-API adapter over the local Jomini 0.35.0 checkout.
-//! Streaming structural inventory, not a CK3 schema validator or save writer.
+//! Native save inspection, scoped compatibility checks, and experimental migration.
+//! Jomini supplies streaming syntax/container validation; engine testing is separate.
+// napi omits exported entry points in Rust's standalone unit-test harness.
+#![cfg_attr(test, allow(dead_code))]
 use jomini::{
     envelope::{JominiFile, JominiFileKind},
     text::{Operator, Token, TokenReader},

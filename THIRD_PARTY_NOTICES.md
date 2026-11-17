@@ -1,7 +1,12 @@
 # Third-party notices
 
+CK3 Continuum project code is copyright (c) 2026 CK3 Continuum contributors and is distributed under `GPL-3.0-or-later`; see `LICENSE`. Third-party components and game assets retain their own licenses and rights.
+
 - **Jomini 0.35.0**, copyright Nick Babcock: MIT. Reviewed source is in `vendor/jomini/`. The original license is in `vendor/jomini/LICENSE.txt` and `native/JOMINI-LICENSE.txt`. Core source fingerprints are in `native/jomini-source.json`. The vendored core is unchanged; only our dependency/build paths use the local vendor directory. Upstream: https://github.com/rakaly/jomini.
 - **Electron**, **Svelte**, **Vite**, **napi-rs**, and other locked dependencies retain their own licenses. npm/Cargo dependency manifests identify exact versions. Packaged Electron includes its license and Chromium third-party notices.
+- **base64 0.22.1**, copyright (c) 2015 Alice Maz, used under its MIT option. The complete notice is in `native/BASE64-LICENSE.txt` and is included with packaged builds.
+- **ck3-save-updater 0.5.33** (upstream version commit `071b6076`), copyright (c) 2026 Dustin, **GPL-3.0-or-later**. Gene ordering/template translation and curated R25 successor mappings in `native/src/conversion/portraits.rs`, `content.rs`, and `scripts/build-compatibility-data.py` are adapted from `ck3_save_migrator/dna.py` and `rules/to_1_20.py`. Scoped compatibility checks draw on `lint.py` and `idschema.py`. Continuum uses its own parser, writer, and findings model. The upstream license is preserved in `native/CK3-SAVE-UPDATER-LICENSE.txt` and included with packaged builds. Upstream: https://github.com/djdarcy/ck3-save-updater.
+- **Compatibility tables** in `native/src/conversion/data/` contain gene/template names, indices, successor keys, and provenance only. They were regenerated from pinned game-definition commits with `scripts/build-compatibility-data.py`; no gene behavior, mesh data, game scripts, or maps are included in those tables. These factual identifiers do not change the rights in CK3 or its assets.
 - No implementation from CK3 Save Cleaner or CK3 editor has been incorporated. Their local source reviews informed independent design work.
-- No CK3 saves, proprietary game scripts, or maps are distributed. Interface decorations use original CSS/vectors and system fonts.
-- **images/ck3.ico** was supplied by the project user and is included unchanged as the app/window icon. The project MIT license does not change any third-party rights in this asset.
+- The supplied CK3 reference save in `reference-saves/` and its game data are not covered by the project code license. No standalone proprietary game scripts or maps are distributed. Interface decorations use original CSS/vectors and system fonts.
+- **images/ck3.ico** was supplied by the project user and is included unchanged as the app/window icon. The project GPL license does not change any third-party rights in this asset.
